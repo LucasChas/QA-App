@@ -5,7 +5,7 @@
   QA.registerGame({
     id: 'niveles-prueba',
     chapter: 2,
-    icon: '🏗️',
+    icon: 'layers',
     title: 'Sube los niveles de prueba',
     desc: 'Identifica el nivel de prueba adecuado para cada escenario.',
     xp: 110,
@@ -39,7 +39,7 @@
   QA.registerGame({
     id: 'tipos-prueba',
     chapter: 2,
-    icon: '🧪',
+    icon: 'flask',
     title: 'Tipos de prueba',
     desc: 'Funcional, no funcional, caja blanca, confirmación o regresión: ¿cuál es cuál?',
     xp: 110,
@@ -72,7 +72,7 @@
   QA.registerGame({
     id: 'sdlc-shift-left',
     chapter: 2,
-    icon: '⏪',
+    icon: 'rewind',
     title: 'Shift-left y modelos de desarrollo',
     desc: 'TDD, BDD, ATDD, DevOps, retrospectivas y pruebas de mantenimiento.',
     xp: 100,

@@ -1,6 +1,5 @@
 /* QA Academy - núcleo: estado, progreso, gamificación y motores de juego reutilizables. */
 const QA = (() => {
-  const STORAGE_KEY = 'qa-academy-v1';
 
   const CHAPTERS = [
     { id: 1, title: 'Fundamentos del testing', desc: 'Qué es probar, por qué es necesario, los 7 principios y el proceso de prueba.' },
@@ -12,45 +11,47 @@ const QA = (() => {
   ];
 
   const LEVELS = [
-    { xp: 0, name: 'Aprendiz de Tester', icon: '🥚' },
-    { xp: 150, name: 'Tester Trainee', icon: '🐣' },
-    { xp: 400, name: 'Tester Junior', icon: '🔍' },
-    { xp: 800, name: 'Tester', icon: '🧪' },
-    { xp: 1300, name: 'Tester Senior', icon: '🛡️' },
-    { xp: 1900, name: 'Test Analyst', icon: '📊' },
-    { xp: 2600, name: 'Test Manager', icon: '🎯' },
-    { xp: 3400, name: 'Leyenda ISTQB', icon: '🏆' },
+    { xp: 0, name: 'Aprendiz de Tester' },
+    { xp: 150, name: 'Tester Trainee' },
+    { xp: 400, name: 'Tester Junior' },
+    { xp: 800, name: 'Tester' },
+    { xp: 1300, name: 'Tester Senior' },
+    { xp: 1900, name: 'Test Analyst' },
+    { xp: 2600, name: 'Test Manager' },
+    { xp: 3400, name: 'Leyenda ISTQB' },
   ];
 
   const BADGES = [
-    { id: 'primer-paso', icon: '👣', name: 'Primer paso', desc: 'Completa tu primer juego.' },
-    { id: 'perfeccionista', icon: '⭐', name: 'Perfeccionista', desc: 'Consigue 3 estrellas en un juego.' },
-    { id: 'ojo-halcon', icon: '🦅', name: 'Ojo de halcón', desc: '3 estrellas en "Cazador de defectos en requisitos".' },
-    { id: 'cazador', icon: '🐞', name: 'Cazabugs', desc: 'Encuentra todos los bugs de la Tienda QA sin falsos positivos.' },
-    { id: 'tecnico', icon: '🧠', name: 'Maestro de técnicas', desc: '3 estrellas en todos los juegos del capítulo 4.' },
-    { id: 'explorador', icon: '🧭', name: 'Explorador', desc: 'Juega todos los juegos al menos una vez.' },
-    { id: 'certificado', icon: '🎓', name: 'Listo para certificar', desc: 'Aprueba el simulacro de examen (≥ 65%).' },
-    { id: 'leyenda', icon: '🏆', name: 'Leyenda', desc: '3 estrellas en todos los juegos.' },
+    { id: 'primer-paso', icon: 'check', name: 'Primer paso', desc: 'Completa tu primer juego.' },
+    { id: 'perfeccionista', icon: 'chart', name: 'Perfeccionista', desc: 'Consigue 3 estrellas en un juego.' },
+    { id: 'ojo-halcon', icon: 'search', name: 'Ojo de halcón', desc: '3 estrellas en "Cazador de defectos en requisitos".' },
+    { id: 'cazador', icon: 'bug', name: 'Cazabugs', desc: 'Encuentra todos los bugs de la Tienda QA sin falsos positivos.' },
+    { id: 'tecnico', icon: 'compass', name: 'Maestro de técnicas', desc: '3 estrellas en todos los juegos del capítulo 4.' },
+    { id: 'explorador', icon: 'grid', name: 'Explorador', desc: 'Juega todos los juegos al menos una vez.' },
+    { id: 'certificado', icon: 'graduation', name: 'Listo para certificar', desc: 'Aprueba el simulacro de examen (≥ 65%).' },
+    { id: 'leyenda', icon: 'layers', name: 'Leyenda', desc: '3 estrellas en todos los juegos.' },
   ];
 
   const games = [];
 
-  /* ---------------- Estado ---------------- */
+  /* ---------------- Estado ----------------
+     El progreso vive en el servidor (cuenta del usuario). Aquí se mantiene una copia
+     en memoria y cada cambio se envía con un pequeño retardo. */
   const defaultState = () => ({ xp: 0, results: {}, badges: [] });
 
-  function load() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? Object.assign(defaultState(), JSON.parse(raw)) : defaultState();
-    } catch (e) {
-      return defaultState();
-    }
+  let state = defaultState();
+  let syncTimer = null;
+
+  function loadState(progress) {
+    state = Object.assign(defaultState(), progress ? { xp: progress.xp, results: progress.results, badges: progress.badges } : {});
+    renderPlayer();
   }
 
-  let state = load();
-
   function save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* almacenamiento no disponible */ }
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => {
+      API.put('/api/progress', state).catch(() => toast('No se pudo guardar tu progreso. Revisa tu conexión.'));
+    }, 300);
   }
 
   function resetProgress() {
@@ -121,7 +122,7 @@ const QA = (() => {
     if (!el) return;
     const { cur, next, pct } = levelFor(state.xp);
     el.replaceChildren(
-      h('span', { class: 'player-level' }, `${cur.icon} ${cur.name}`),
+      h('span', { class: 'player-level' }, cur.name),
       h('div', { class: 'player-xp' },
         h('div', { class: 'bar' }, h('span', { style: `width:${pct}%` })),
         h('small', null, next ? `${state.xp} / ${next.xp} XP` : `${state.xp} XP · nivel máximo`)
@@ -138,7 +139,7 @@ const QA = (() => {
     if (state.badges.includes(id)) return null;
     state.badges.push(id);
     const b = BADGES.find(x => x.id === id);
-    toast(`${b.icon} ¡Insignia desbloqueada: ${b.name}!`);
+    toast(`Insignia desbloqueada: ${b.name}`);
     return b;
   }
 
@@ -171,7 +172,7 @@ const QA = (() => {
     const after = levelFor(state.xp);
     save();
     renderPlayer();
-    if (after.idx > before) toast(`${after.cur.icon} ¡Subiste de nivel: ${after.cur.name}!`);
+    if (after.idx > before) toast(`Subiste de nivel: ${after.cur.name}`);
     return { pct, gained, stars: starsFor(pct), badges, newBest: pct > prev.best };
   }
 
@@ -191,10 +192,10 @@ const QA = (() => {
         h('p', null, msgs[r.stars]),
         extra && extra.note ? h('p', { class: 'muted' }, extra.note) : null,
         h('p', { class: 'xp' }, `+${r.gained} XP${r.newBest ? ' · ¡Nuevo récord!' : ''}`),
-        r.badges.length ? h('p', null, 'Insignias: ', r.badges.map(b => `${b.icon} ${b.name}`).join(', ')) : null,
+        r.badges.length ? h('p', null, 'Insignias nuevas: ', r.badges.map(b => b.name).join(', ')) : null,
         h('div', { class: 'actions' },
-          h('a', { class: 'btn', href: '#/' }, '🗺️ Volver al mapa'),
-          h('button', { class: 'btn primary', onclick: () => window.dispatchEvent(new Event('hashchange')) }, '🔁 Jugar de nuevo')
+          h('a', { class: 'btn', href: '#/juegos' }, 'Volver a los juegos'),
+          h('button', { class: 'btn primary', onclick: () => window.dispatchEvent(new Event('hashchange')) }, 'Jugar de nuevo')
         )
       )
     );
@@ -245,7 +246,7 @@ const QA = (() => {
       remaining--;
       updateTimer();
       if (remaining <= 0) {
-        toast('⏰ ¡Se acabó el tiempo!');
+        toast('Se acabó el tiempo.');
         done();
       }
     }
@@ -254,7 +255,7 @@ const QA = (() => {
       if (!timerEl) return;
       const m = Math.floor(remaining / 60);
       const s = String(remaining % 60).padStart(2, '0');
-      timerEl.textContent = `⏱️ ${m}:${s}`;
+      timerEl.textContent = `${m}:${s}`;
       timerEl.classList.toggle('low', remaining <= 60);
     }
 
@@ -278,7 +279,7 @@ const QA = (() => {
               if (x.dataset.val === it.answer) x.classList.add('correct');
             });
             if (!ok) b.classList.add('wrong');
-            fbBox.append(feedback(ok, ok ? '✅ ¡Correcto!' : `❌ Incorrecto. Respuesta: ${it.answer}`, it.explain));
+            fbBox.append(feedback(ok, ok ? 'Correcto' : `Incorrecto. La respuesta es: ${it.answer}`, it.explain));
             const last = i === items.length - 1;
             actions.append(h('button', {
               class: 'btn primary',
@@ -338,7 +339,7 @@ const QA = (() => {
       const actions = h('div', { class: 'actions' });
       if (!checked) {
         actions.append(
-          h('button', { class: 'btn', onclick: () => { placed = []; render(); } }, '↺ Reiniciar'),
+          h('button', { class: 'btn', onclick: () => { placed = []; render(); } }, 'Reiniciar'),
           h('button', {
             class: 'btn primary',
             disabled: remainingItems.length > 0,
@@ -411,7 +412,7 @@ const QA = (() => {
           score += pts;
           max += r.correct.length;
           const perfect = pts === r.correct.length;
-          fbBox.append(feedback(perfect, `${perfect ? '✅' : '⚠️'} ${pts} / ${r.correct.length} puntos (aciertos: ${hits}, sobrantes: ${fp})`,
+          fbBox.append(feedback(perfect, `${pts} / ${r.correct.length} puntos (aciertos: ${hits}, sobrantes: ${fp})`,
             `<b>Respuesta:</b> ${r.correct.join(', ')}${r.explain ? `<br>${r.explain}` : ''}`));
           check.remove();
           const last = i === rounds.length - 1;
@@ -453,7 +454,7 @@ const QA = (() => {
   return {
     CHAPTERS, LEVELS, BADGES, games,
     get state() { return state; },
-    h, shuffle, starsHtml, toast, renderPlayer, levelFor, resetProgress,
+    h, shuffle, starsHtml, toast, renderPlayer, levelFor, resetProgress, loadState,
     registerGame, getResult, showResult,
     quiz, order, multiSelect, phases, feedback,
   };

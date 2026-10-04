@@ -3,9 +3,9 @@
   const { h, shuffle } = QA;
 
   const PRODUCTS = [
-    { id: 'taza', name: '☕ Taza QA', price: 10 },
-    { id: 'remera', name: '👕 Camiseta "It works on my machine"', price: 25 },
-    { id: 'libro', name: '📘 Libro de testing', price: 15 },
+    { id: 'taza', name: 'Taza QA', price: 10 },
+    { id: 'remera', name: 'Camiseta "It works on my machine"', price: 25 },
+    { id: 'libro', name: 'Libro de testing', price: 15 },
   ];
 
   const REPORTS = [
@@ -26,7 +26,7 @@
   QA.registerGame({
     id: 'bug-hunt',
     chapter: 6,
-    icon: '🐞',
+    icon: 'bug',
     title: 'Bug Hunt: Tienda QA',
     desc: 'Sesión de pruebas exploratorias: usa la tienda, compárala con la especificación y reporta los bugs reales.',
     xp: 200,
@@ -102,11 +102,11 @@
         const code = couponInput.value.trim();
         if (code === 'QA10') {
           coupons++; // BUG: no se impide aplicarlo de nuevo
-          couponMsg.replaceChildren(h('div', { class: 'msg ok' }, '✅ Cupón QA10 aplicado.'));
+          couponMsg.replaceChildren(h('div', { class: 'msg ok' }, 'Cupón QA10 aplicado.'));
           log('Cupón QA10 aplicado');
         } else {
           if (code.toUpperCase() === 'VERANO') triggered.add('d-cupon');
-          couponMsg.replaceChildren(h('div', { class: 'msg bad' }, '❌ Cupón inválido.'));
+          couponMsg.replaceChildren(h('div', { class: 'msg bad' }, 'Cupón inválido.'));
           log(`Cupón inválido: "${code}"`);
         }
         renderTotals();
@@ -122,7 +122,7 @@
         const name = nameInput.value.trim();
         const email = emailInput.value.trim();
         const age = parseInt(ageInput.value, 10);
-        const fail = msg => { checkoutMsg.replaceChildren(h('div', { class: 'msg bad' }, `❌ ${msg}`)); log(`Checkout rechazado: ${msg}`); };
+        const fail = msg => { checkoutMsg.replaceChildren(h('div', { class: 'msg bad' }, `${msg}`)); log(`Checkout rechazado: ${msg}`); };
         if (t.subtotal <= 0 && !Object.values(qty).some(q => q !== 0)) return fail('El carrito está vacío.');
         if (!name) return fail('El nombre es obligatorio.');
         if (!email) return fail('El email es obligatorio.'); // BUG: no valida el formato
@@ -133,17 +133,17 @@
           return fail('Debes ser mayor de edad para comprar.');
         }
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) triggered.add('email');
-        checkoutMsg.replaceChildren(h('div', { class: 'msg ok' }, `✅ ¡Pedido confirmado para ${name}! Total cobrado: ${money(t.total)}`));
+        checkoutMsg.replaceChildren(h('div', { class: 'msg ok' }, `¡Pedido confirmado para ${name}! Total cobrado: ${money(t.total)}`));
         log(`Pedido confirmado (email: ${email}, edad: ${age}, total: ${money(t.total)})`);
       };
 
       const shop = h('div', { class: 'card shop' },
-        h('h3', null, '🛒 Tienda QA'),
+        h('h3', null, 'Tienda QA'),
         productRows,
         h('div', { class: 'row', style: 'margin-top:12px' }, couponInput, h('button', { class: 'btn small', onclick: applyCoupon }, 'Aplicar')),
         couponMsg,
         totalsBox,
-        h('h3', null, '💳 Checkout'),
+        h('h3', null, 'Checkout'),
         h('form', { onsubmit: checkout },
           h('label', null, 'Nombre', nameInput),
           h('label', null, 'Email', emailInput),
@@ -170,18 +170,18 @@
                 if (!r.real) {
                   falsePositives++;
                   rejected.add(r.id);
-                  QA.toast('🙅 Rechazado: ese comportamiento cumple la especificación (falso positivo).');
+                  QA.toast('Rechazado: ese comportamiento cumple la especificación (falso positivo).');
                   log(`Reporte rechazado (falso positivo): ${r.text}`);
                 } else if (!triggered.has(r.id)) {
-                  QA.toast('🔁 Aún no lo reprodujiste en esta sesión. ¡Provócalo primero!');
+                  QA.toast('Aún no lo reprodujiste en esta sesión. ¡Provócalo primero!');
                 } else {
                   found.add(r.id);
-                  QA.toast('🐞 ¡Bug confirmado por el equipo de desarrollo!');
+                  QA.toast('¡Bug confirmado por el equipo de desarrollo!');
                   log(`Bug reportado y confirmado: ${r.text}`);
                 }
                 renderBugs();
               },
-            }, isFound ? '✅' : isRejected ? '🚫' : '🐞 Reportar'),
+            }, isFound ? 'Confirmado' : isRejected ? 'Rechazado' : 'Reportar'),
             h('span', null, r.text)
           );
         }));
@@ -189,7 +189,7 @@
 
       const side = h('div', { style: 'display:grid; gap:16px; align-content:start' },
         h('div', { class: 'card spec' },
-          h('h3', { style: 'margin-top:0' }, '📋 Especificación (oráculo)'),
+          h('h3', { style: 'margin-top:0' }, 'Especificación (oráculo)'),
           h('ol', null,
             h('li', null, 'Cada producto admite cantidades enteras de 0 a 10.'),
             h('li', null, 'Envío: $5 si el carrito no está vacío. Gratis si el subtotal es de $50 o más.'),
@@ -199,7 +199,7 @@
           )
         ),
         h('div', { class: 'card' },
-          h('h3', { style: 'margin-top:0' }, '🐞 Reportes candidatos'),
+          h('h3', { style: 'margin-top:0' }, 'Reportes candidatos'),
           h('p', { class: 'muted', style: 'margin-top:0' }, 'Reporta solo lo que reprodujiste y que contradice la especificación.'),
           status,
           bugList,
@@ -214,10 +214,10 @@
                   note: `Bugs encontrados: ${found.size}/${realTotal} · Falsos positivos: ${falsePositives}`,
                 });
               },
-            }, '🏁 Finalizar sesión')
+            }, 'Finalizar sesión')
           )
         ),
-        h('div', { class: 'card' }, h('b', null, '🧾 Registro de la sesión'), logBox)
+        h('div', { class: 'card' }, h('b', null, 'Registro de la sesión'), logBox)
       );
 
       root.replaceChildren(h('div', { class: 'hunt' }, shop, side));

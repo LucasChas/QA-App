@@ -5,7 +5,7 @@
   QA.registerGame({
     id: 'error-defecto-fallo',
     chapter: 1,
-    icon: '🧩',
+    icon: 'link',
     title: '¿Error, defecto o fallo?',
     desc: 'Clasifica cada situación según la cadena causa → efecto del ISTQB.',
     xp: 100,
@@ -39,7 +39,7 @@
   QA.registerGame({
     id: 'siete-principios',
     chapter: 1,
-    icon: '📜',
+    icon: 'scroll',
     title: 'Los 7 principios',
     desc: 'Relaciona situaciones reales con los principios del testing.',
     xp: 120,
@@ -82,7 +82,7 @@
   QA.registerGame({
     id: 'proceso-pruebas',
     chapter: 1,
-    icon: '🔄',
+    icon: 'cycle',
     title: 'El proceso de prueba',
     desc: 'Ordena las actividades del proceso y relaciona cada una con su producto de prueba (testware).',
     xp: 130,
@@ -125,7 +125,7 @@
   QA.registerGame({
     id: 'por-que-probar',
     chapter: 1,
-    icon: '❓',
+    icon: 'help',
     title: 'QA, QC y depuración',
     desc: 'Diferencia testing, depuración, aseguramiento de calidad, verificación y validación.',
     xp: 90,

@@ -8,7 +8,7 @@
   QA.registerGame({
     id: 'reporte-defectos',
     chapter: 5,
-    icon: '📝',
+    icon: 'file-text',
     title: 'El reporte de defectos perfecto',
     desc: 'Detecta qué le falta a cada reporte de bug y domina el ciclo de vida del defecto.',
     xp: 130,
@@ -86,7 +86,7 @@
   QA.registerGame({
     id: 'riesgos',
     chapter: 5,
-    icon: '⚠️',
+    icon: 'alert',
     title: 'Pruebas basadas en riesgo',
     desc: 'Clasifica riesgos de producto y de proyecto, y prioriza según su nivel.',
     xp: 130,
@@ -142,7 +142,7 @@
   QA.registerGame({
     id: 'gestion-pruebas',
     chapter: 5,
-    icon: '📅',
+    icon: 'calendar',
     title: 'El test manager',
     desc: 'Planificación, criterios de entrada/salida, estimación, métricas, pirámide, cuadrantes y herramientas.',
     xp: 140,

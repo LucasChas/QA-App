@@ -6,7 +6,7 @@
   QA.registerGame({
     id: 'particiones-limites',
     chapter: 4,
-    icon: '📏',
+    icon: 'ruler',
     title: 'Particiones y valores límite',
     desc: 'Elige los valores de prueba justos: ni de más, ni de menos.',
     xp: 150,
@@ -117,7 +117,7 @@
       root.replaceChildren(
         h('div', { class: 'card' },
           h('div', { class: 'progress-line' }, h('span', null, `Tabla ${idx + 1} / ${TABLES.length}`)),
-          h('div', { class: 'question' }, `🧮 ${tbl.title}`),
+          h('div', { class: 'question' }, `${tbl.title}`),
           h('div', { class: 'context', html: `<b>Reglas de negocio:</b> ${tbl.rules}` }),
           h('p', { class: 'muted' }, 'Completa las acciones: haz clic en cada celda para marcar con X las acciones que se ejecutan en cada regla (V = verdadero, F = falso).'),
           h('div', { class: 'table-wrap' },
@@ -147,7 +147,7 @@
   QA.registerGame({
     id: 'tabla-decision',
     chapter: 4,
-    icon: '🧮',
+    icon: 'table',
     title: 'Tablas de decisión',
     desc: 'Completa las acciones de cada regla de negocio y descubre combinaciones ocultas.',
     xp: 140,
@@ -231,7 +231,7 @@
   QA.registerGame({
     id: 'transicion-estados',
     chapter: 4,
-    icon: '🔀',
+    icon: 'branch',
     title: 'Transición de estados',
     desc: 'Navega el ciclo de vida de un pedido y detecta transiciones inválidas.',
     xp: 140,
@@ -276,7 +276,7 @@
   QA.registerGame({
     id: 'elige-tecnica',
     chapter: 4,
-    icon: '🧠',
+    icon: 'compass',
     title: 'Elige la técnica',
     desc: 'Caja blanca, cobertura de código, técnicas basadas en la experiencia y colaboración.',
     xp: 130,

@@ -1,48 +1,61 @@
-# 🐞 QA Academy — Aprende a ser tester jugando
+# QA Academy
 
-Aplicación web educativa con **mini-juegos** para aprender testing de software siguiendo el temario **ISTQB® Certified Tester Foundation Level (CTFL v4.0)**.
+Plataforma de capacitación en testing de software basada en el temario **ISTQB® Certified Tester Foundation Level (CTFL v4.0)**: juegos prácticos, filminas por capítulo, una biblioteca de documentación real y exámenes que crea y corrige el profesor.
 
-## Cómo ejecutarla
+## Puesta en marcha
 
-Es una app estática (HTML + CSS + JavaScript, sin dependencias ni build):
+Requiere Node.js 18 o superior. No tiene dependencias externas.
 
 ```bash
-# opción 1: abrir index.html directamente en el navegador
-# opción 2: servirla localmente
-python3 -m http.server 8000   # luego abrir http://localhost:8000
+npm start            # http://localhost:3000
+npm test             # pruebas de la API
 ```
 
-También puede publicarse tal cual en GitHub Pages, Netlify, etc.
+La **primera cuenta que se registra es la del profesor administrador**. Después, los alumnos crean sus propias cuentas desde la misma pantalla.
 
-## Contenido (18 juegos)
+Variables de entorno opcionales:
 
-| Capítulo ISTQB | Juegos |
+| Variable | Uso |
 |---|---|
-| 1. Fundamentos | ¿Error, defecto o fallo? · Los 7 principios · El proceso de prueba (ordenar actividades + testware) · QA, QC y depuración |
-| 2. Ciclo de vida | Niveles de prueba · Tipos de prueba · Shift-left, TDD/BDD/ATDD, DevOps y mantenimiento |
-| 3. Pruebas estáticas | Cazador de defectos en requisitos (revisión de documentos y código) · Revisiones y roles |
-| 4. Técnicas | Particiones y valores límite (BVA 2 y 3 valores) · Tablas de decisión interactivas · Transición de estados (diagrama) · Elige la técnica (cobertura de sentencias/ramas, experiencia, colaboración) |
-| 5. Gestión | El reporte de defectos perfecto · Pruebas basadas en riesgo · El test manager (estimación, criterios, pirámide, cuadrantes, herramientas) |
-| Práctica | **Bug Hunt: Tienda QA** — sesión exploratoria sobre una tienda con 6 bugs sembrados · **Simulacro de examen** cronometrado (aprobación 65%) |
+| `PORT` | Puerto HTTP (por defecto `3000`). |
+| `DATA_FILE` | Archivo donde se guardan los datos (por defecto `data/db.json`). Haz copias de seguridad de este archivo. |
+| `TEACHER_CODE` | Si se define, quien se registre con este código obtiene rol de profesor. |
+| `SECURE_COOKIES=1` | Marca la cookie de sesión como `Secure` (actívalo detrás de HTTPS). |
 
-## Gamificación
+Para publicarla en internet sirve cualquier servicio que ejecute Node (Render, Railway, Fly.io, un VPS…) con un disco persistente para `DATA_FILE` y HTTPS delante.
 
-- **XP y niveles**: de *Aprendiz de Tester* a *Leyenda ISTQB*.
-- **Estrellas** por juego (50% / 70% / 90%).
-- **Insignias**: Cazabugs, Ojo de halcón, Maestro de técnicas, Listo para certificar, etc.
-- Cada juego incluye un **repaso de teoría** y explicaciones tras cada respuesta.
-- El progreso se guarda en el navegador (`localStorage`).
+## Qué incluye
+
+**Para alumnos**
+- **Juegos (18)** organizados por capítulo del temario: error/defecto/fallo, los 7 principios, proceso de prueba, niveles y tipos, revisiones, particiones y valores límite, tablas de decisión, transición de estados, cobertura de código, reportes de defectos, riesgos, gestión, una sesión exploratoria sobre una tienda con bugs sembrados y un simulacro de examen cronometrado.
+- **Filminas** de los 6 capítulos, con modo pantalla completa, navegación con teclado, notas para presentar e impresión a PDF (una filmina por página).
+- **Biblioteca** con enlaces a documentación real: temario oficial en español (HASTQB/SSTQB), exámenes de ejemplo, glosario ISTQB, normas ISO, artículos de referencia (pirámide de pruebas, cuadrantes, SBTM) y documentación de herramientas.
+- **Mis exámenes**: rendir con temporizador, entrega automática al vencer el tiempo y revisión de respuestas si el profesor la habilita.
+- Progreso, XP, niveles e insignias guardados en la cuenta.
+
+**Para profesores**
+- Crear, editar, duplicar, publicar y eliminar exámenes. Preguntas propias o importadas del banco ISTQB, tiempo límite, porcentaje de aprobación, intentos, fecha límite y asignación a todos o a alumnos concretos.
+- Resultados por examen: notas, pendientes, aciertos por pregunta y exportación a CSV.
+- Alumnos: avance en los juegos, exámenes rendidos, cambio de rol y restablecimiento de contraseña.
+- Agregar o quitar documentos de la biblioteca.
+
+## Seguridad
+
+- Contraseñas con `scrypt` y sal; sesiones en cookie `HttpOnly` y `SameSite=Strict`; en el servidor solo se guarda el hash del token.
+- Las respuestas correctas nunca se envían al navegador del alumno antes de entregar; la corrección se hace en el servidor.
+- Límite de intentos de inicio de sesión, validación de todas las entradas y cabeceras CSP.
 
 ## Estructura
 
 ```
-index.html
-css/styles.css
-js/core.js            # estado, XP, insignias y motores reutilizables (quiz, ordenar, selección múltiple)
-js/app.js             # enrutador, mapa, glosario y progreso
-js/games/*.js         # un archivo por capítulo + bug hunt + examen
+server/          API REST (Node, sin dependencias) y almacenamiento en JSON
+public/          aplicación web
+  js/core.js     estado, XP, insignias y motores de juego
+  js/games/      un archivo por capítulo + bug hunt + simulacro
+  js/bank.js     banco de preguntas tipo examen
+  js/slides-data.js  contenido de las filminas
+  js/views-*.js  pantallas (aprendizaje, exámenes, profesor)
+test/            pruebas de la API (node:test)
 ```
 
-Para agregar un juego: llama a `QA.registerGame({ id, chapter, icon, title, desc, xp, theory, play(root, done) })` y finaliza con `done(puntaje, maximo)`.
-
-> Proyecto educativo inspirado en el temario ISTQB®; no está afiliado oficialmente a ISTQB®.
+> Proyecto educativo inspirado en el temario ISTQB®; no está afiliado oficialmente a ISTQB®. Los enlaces de la biblioteca apuntan a los sitios originales.

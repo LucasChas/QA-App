@@ -65,7 +65,7 @@
           h('span', { class: 'ln' }, i + 1),
           h('span', null,
             doc.code ? h('code', null, ln.t) : ln.t,
-            checked && ln.bug ? h('span', { class: 'why' }, `🐞 ${ln.bug}`) : null,
+            checked && ln.bug ? h('span', { class: 'why' }, `Defecto: ${ln.bug}`) : null,
             checked && !ln.bug && selected.has(i) ? h('span', { class: 'why' }, 'Esta línea es correcta (falso positivo).') : null
           )
         );
@@ -78,7 +78,7 @@
         h('div', { class: 'card' },
           h('div', { class: 'progress-line' }, h('span', null, `Documento ${idx + 1} / ${total}`)),
           h('div', { class: 'question' }, `Revisa el documento y marca las líneas que contienen defectos (hay ${bugs}).`),
-          h('div', { class: 'doc' }, h('div', { class: 'doc-title' }, `📄 ${doc.title}`), lines),
+          h('div', { class: 'doc' }, h('div', { class: 'doc-title' }, `${doc.title}`), lines),
           checked ? QA.feedback(pts === bugs, `${pts} / ${bugs} puntos · encontrados: ${hits}, falsos positivos: ${fp}`,
             'Las líneas en rojo punteado son defectos que no marcaste.') : null,
           h('div', { class: 'actions' },
@@ -95,7 +95,7 @@
   QA.registerGame({
     id: 'revision-requisitos',
     chapter: 3,
-    icon: '🔎',
+    icon: 'search',
     title: 'Cazador de defectos en requisitos',
     desc: 'Haz una revisión: encuentra ambigüedades, inconsistencias y omisiones sin ejecutar nada.',
     xp: 150,
@@ -121,7 +121,7 @@
   QA.registerGame({
     id: 'tipos-revision',
     chapter: 3,
-    icon: '👥',
+    icon: 'users',
     title: 'Revisiones y roles',
     desc: 'Identifica el tipo de revisión y el rol de cada participante.',
     xp: 100,
