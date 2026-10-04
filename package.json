@@ -5,10 +5,15 @@
   "private": true,
   "scripts": {
     "start": "node server/server.js",
-    "test": "node --test test/*.test.js"
+    "start:supabase": "node --env-file=.env.local server/server.js",
+    "migrate:supabase": "node --env-file=.env.local scripts/migrate-to-supabase.js",
+    "test": "node --test test/api.test.js test/api-supabase.test.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.2"
+  }
 }

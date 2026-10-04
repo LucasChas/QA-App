@@ -4,25 +4,32 @@ Plataforma de capacitación en testing de software basada en el temario **ISTQB�
 
 ## Puesta en marcha
 
-Requiere Node.js 18 o superior. No tiene dependencias externas.
+### Publicar en internet (Supabase + Vercel)
+
+Sigue la guía [`docs/deploy.md`](docs/deploy.md): crear la base en Supabase (un script SQL), importar el repositorio en Vercel y cargar dos variables de entorno. El resultado es una URL para compartir.
+
+### En tu computadora
+
+Requiere Node.js 20 o superior.
 
 ```bash
-npm start            # http://localhost:3000
-npm test             # pruebas de la API
+npm install
+npm start               # http://localhost:3000, datos en data/db.json
+npm run start:supabase  # igual, pero con los datos en Supabase (variables en .env.local)
+npm test                # pruebas de la API (archivo y Supabase simulado)
 ```
 
 La **primera cuenta que se registra es la del profesor administrador**. Después, los alumnos crean sus propias cuentas desde la misma pantalla.
 
-Variables de entorno opcionales:
+Variables de entorno:
 
 | Variable | Uso |
 |---|---|
-| `PORT` | Puerto HTTP (por defecto `3000`). |
-| `DATA_FILE` | Archivo donde se guardan los datos (por defecto `data/db.json`). Haz copias de seguridad de este archivo. |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Si están definidas, los datos se guardan en Supabase. Obligatorias en Vercel. |
 | `TEACHER_CODE` | Si se define, quien se registre con este código obtiene rol de profesor. |
-| `SECURE_COOKIES=1` | Marca la cookie de sesión como `Secure` (actívalo detrás de HTTPS). |
-
-Para publicarla en internet sirve cualquier servicio que ejecute Node (Render, Railway, Fly.io, un VPS…) con un disco persistente para `DATA_FILE` y HTTPS delante.
+| `PORT` | Puerto HTTP local (por defecto `3000`). |
+| `DATA_FILE` | Archivo local de datos cuando no se usa Supabase (por defecto `data/db.json`). |
+| `SECURE_COOKIES=1`, `TRUST_PROXY=1` | Para un servidor propio detrás de HTTPS o de un proxy. En Vercel ya están activados. |
 
 ## Qué incluye
 
@@ -58,7 +65,10 @@ El análisis de la competencia que motivó estas funciones está en [`docs/bench
 ## Estructura
 
 ```
-server/          API REST (Node, sin dependencias) y almacenamiento en JSON
+server/          API REST (Node) y capa de datos (archivo local o Supabase)
+api/index.js     función serverless de Vercel que expone la API
+supabase/        esquema SQL de la base
+scripts/         migración de data/db.json a Supabase
 public/          aplicación web
   js/core.js     estado, XP, insignias y motores de juego
   js/games/      un archivo por capítulo + bug hunt + simulacro
@@ -66,7 +76,7 @@ public/          aplicación web
   js/views-study.js  repaso, simulacro oficial y preparación
   js/slides-data.js  contenido de las filminas
   js/views-*.js  pantallas (aprendizaje, exámenes, profesor)
-test/            pruebas de la API (node:test)
+test/            pruebas de la API (node:test) con ambos backends
 ```
 
 > Proyecto educativo inspirado en el temario ISTQB®; no está afiliado oficialmente a ISTQB®. Los enlaces de la biblioteca apuntan a los sitios originales.

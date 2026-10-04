@@ -1,5 +1,6 @@
 'use strict';
-/* API REST de QA Academy + servidor de archivos estáticos. Sin dependencias externas. */
+/* API REST de QA Academy + servidor de archivos estáticos.
+   El almacenamiento llega como "store" (archivo local o Supabase, ver server/store.js). */
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -128,8 +129,8 @@ function sanitizeProgress(p) {
   };
 }
 
-function sanitizeExam(body, store, existing) {
-  const students = new Set(store.data.users.filter(u => u.role === 'alumno').map(u => u.id));
+function sanitizeExam(body, data, existing) {
+  const students = new Set(data.users.filter(u => u.role === 'alumno').map(u => u.id));
   let assignedTo = 'all';
   if (Array.isArray(body.assignedTo)) {
     assignedTo = body.assignedTo.filter(id => students.has(id));
@@ -183,6 +184,16 @@ function readJson(req) {
     if (!/application\/json/.test(req.headers['content-type'] || '')) {
       return reject(new HttpError(415, 'Se esperaba un cuerpo JSON.'));
     }
+    // En Vercel el cuerpo puede llegar ya leído en req.body
+    let pre;
+    try { pre = req.body; } catch (e) { return reject(new HttpError(400, 'El cuerpo JSON no es válido.')); }
+    if (pre !== undefined) {
+      try {
+        if (Buffer.isBuffer(pre)) pre = pre.toString('utf8');
+        if (typeof pre === 'string') pre = pre ? JSON.parse(pre) : {};
+      } catch (e) { return reject(new HttpError(400, 'El cuerpo JSON no es válido.')); }
+      return resolve(pre && typeof pre === 'object' ? pre : {});
+    }
     let size = 0;
     const chunks = [];
     req.on('data', c => {
@@ -234,30 +245,29 @@ function grade(exam, answers) {
   return { answers: graded, score, max, pct, passed: pct >= exam.passPct };
 }
 
-function finalize(store, attempt, exam, answers, now) {
+function finalize(attempt, exam, answers, now) {
   const deadline = attempt.deadline ? new Date(attempt.deadline).getTime() : null;
   Object.assign(attempt, grade(exam, answers || {}), {
     submittedAt: new Date(now).toISOString(),
     late: deadline !== null && now > deadline + SUBMIT_GRACE_MS,
   });
-  store.save();
 }
 
 /* Cierra intentos abiertos cuyo tiempo ya venció (se califican sin respuestas). */
-function closeExpired(store, exam, userId, now) {
-  for (const a of store.data.attempts) {
+function closeExpired(data, exam, userId, now) {
+  for (const a of data.attempts) {
     if (a.examId === exam.id && a.userId === userId && !a.submittedAt && a.deadline &&
       now > new Date(a.deadline).getTime() + SUBMIT_GRACE_MS) {
-      finalize(store, a, exam, {}, now);
+      finalize(a, exam, {}, now);
       a.late = false;
       a.expired = true;
     }
   }
 }
 
-function studentExamView(store, exam, user, now) {
-  closeExpired(store, exam, user.id, now);
-  const attempts = store.data.attempts.filter(a => a.examId === exam.id && a.userId === user.id);
+function studentExamView(data, exam, user, now) {
+  closeExpired(data, exam, user.id, now);
+  const attempts = data.attempts.filter(a => a.examId === exam.id && a.userId === user.id);
   const done = attempts.filter(a => a.submittedAt);
   const open = attempts.find(a => !a.submittedAt);
   const pastDue = exam.dueDate && now > new Date(exam.dueDate).getTime();
@@ -291,6 +301,9 @@ function attemptResult(attempt, exam, withReview) {
 /* ---------- Aplicación ---------- */
 function createApp(store, opts = {}) {
   const secureCookies = Boolean(opts.secureCookies);
+  const serveFiles = opts.serveStatic !== false;
+  // Detrás de un proxy (Vercel) la IP real llega en X-Forwarded-For
+  const clientIp = req => (opts.trustProxy && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress || '';
   const teacherCode = opts.teacherCode || null;
   const now = opts.now || (() => Date.now());
   const loginAttempts = new Map();
@@ -310,15 +323,18 @@ function createApp(store, opts = {}) {
     routes.push({ method, re, keys, role, handler });
   };
 
-  const db = () => store.data;
-  const findExam = id => db().exams.find(e => e.id === id) || fail(404, 'El examen no existe.');
+  const findExam = (db, id) => db().exams.find(e => e.id === id) || fail(404, 'El examen no existe.');
 
   /* --- Estado público: indica si todavía no hay cuentas (la primera será de profesor) --- */
-  route('GET', '/api/status', null, async ({ res }) => send(res, 200, { setup: db().users.length === 0, teacherCode: Boolean(teacherCode) }));
+  route('GET', '/api/status', null, async ({ res, db, need, uow }) => {
+    await need('users');
+    send(res, 200, { setup: db().users.length === 0, teacherCode: Boolean(teacherCode) });
+  });
 
   /* --- Autenticación --- */
-  route('POST', '/api/auth/register', null, async ({ body, res, req }) => {
-    rateLimit(`reg:${req.socket.remoteAddress}`);
+  route('POST', '/api/auth/register', null, async ({ body, res, req, db, need, uow }) => {
+    await need('users');
+    rateLimit(`reg:${clientIp(req)}`);
     const name = str(body.name, 'nombre', { min: 2, max: 80 });
     const email = str(body.email, 'email', { min: 3, max: 120 }).toLowerCase();
     if (!EMAIL_RE.test(email)) fail(400, 'Escribe un email válido, por ejemplo ana@empresa.com.');
@@ -334,51 +350,55 @@ function createApp(store, opts = {}) {
       password: auth.hashPassword(password), createdAt: new Date(now()).toISOString(),
     };
     db().users.push(user);
-    store.save();
-    const token = auth.createSession(store, user.id);
+    const token = auth.createSession(uow, user.id);
     send(res, 201, { user: publicUser(user), progress: null }, { 'Set-Cookie': auth.sessionCookie(token, secureCookies) });
   });
 
-  route('POST', '/api/auth/login', null, async ({ body, res, req }) => {
+  route('POST', '/api/auth/login', null, async ({ body, res, req, db, need, uow }) => {
+    await need('users');
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-    rateLimit(`login:${req.socket.remoteAddress}:${email}`);
+    rateLimit(`login:${clientIp(req)}:${email}`);
     const user = db().users.find(u => u.email === email);
     if (!user || !auth.verifyPassword(String(body.password || ''), user.password)) {
       fail(401, 'El email o la contraseña no son correctos.');
     }
-    const token = auth.createSession(store, user.id);
+    await uow.loadKeys('progress', [user.id]);
+    const token = auth.createSession(uow, user.id);
     send(res, 200, { user: publicUser(user), progress: db().progress[user.id] || null },
       { 'Set-Cookie': auth.sessionCookie(token, secureCookies) });
   });
 
-  route('POST', '/api/auth/logout', null, async ({ req, res }) => {
-    auth.destroySession(store, req);
+  route('POST', '/api/auth/logout', null, async ({ req, res, db, need, uow }) => {
+    await auth.destroySession(uow, req);
     send(res, 200, { ok: true }, { 'Set-Cookie': auth.clearCookie() });
   });
 
-  route('GET', '/api/me', 'any', async ({ user, res }) => {
+  route('GET', '/api/me', 'any', async ({ user, res, db, need, uow }) => {
+    await uow.loadKeys('progress', [user.id]);
     send(res, 200, { user: publicUser(user), progress: db().progress[user.id] || null });
   });
 
-  route('PUT', '/api/me/password', 'any', async ({ user, body, res }) => {
+  route('PUT', '/api/me/password', 'any', async ({ user, body, res, db, need, uow }) => {
     if (!auth.verifyPassword(String(body.current || ''), user.password)) fail(400, 'La contraseña actual no es correcta.');
     const next = typeof body.next === 'string' ? body.next : '';
     if (next.length < 8) fail(400, 'La nueva contraseña debe tener al menos 8 caracteres.');
     user.password = auth.hashPassword(next);
-    store.save();
     send(res, 200, { ok: true });
   });
 
-  route('PUT', '/api/progress', 'any', async ({ user, body, res }) => {
+  route('PUT', '/api/progress', 'any', async ({ user, body, res, db, need, uow }) => {
     db().progress[user.id] = sanitizeProgress(body);
-    store.save();
     send(res, 200, { ok: true });
   });
 
   /* --- Biblioteca --- */
-  route('GET', '/api/docs', 'any', async ({ res }) => send(res, 200, { docs: db().docs }));
+  route('GET', '/api/docs', 'any', async ({ res, db, need, uow }) => {
+    await need('docs');
+    send(res, 200, { docs: db().docs });
+  });
 
-  route('POST', '/api/docs', 'profesor', async ({ user, body, res }) => {
+  route('POST', '/api/docs', 'profesor', async ({ user, body, res, db, need, uow }) => {
+    await need('docs');
     const url = str(body.url, 'enlace', { min: 8, max: 500 });
     let parsed;
     try { parsed = new URL(url); } catch (e) { fail(400, 'El enlace no es una URL válida.'); }
@@ -394,20 +414,20 @@ function createApp(store, opts = {}) {
       createdAt: new Date(now()).toISOString(),
     };
     db().docs.push(doc);
-    store.save();
     send(res, 201, { doc });
   });
 
-  route('DELETE', '/api/docs/:id', 'profesor', async ({ params, res }) => {
+  route('DELETE', '/api/docs/:id', 'profesor', async ({ params, res, db, need, uow }) => {
+    await need('docs');
     const i = db().docs.findIndex(d => d.id === params.id);
     if (i < 0) fail(404, 'El documento no existe.');
     db().docs.splice(i, 1);
-    store.save();
     send(res, 200, { ok: true });
   });
 
   /* --- Exámenes --- */
-  route('GET', '/api/exams', 'any', async ({ user, res }) => {
+  route('GET', '/api/exams', 'any', async ({ user, res, db, need, uow }) => {
+    await need('exams', 'attempts');
     const t = now();
     if (user.role === 'profesor') {
       const students = db().users.filter(u => u.role === 'alumno');
@@ -424,36 +444,40 @@ function createApp(store, opts = {}) {
       });
       return send(res, 200, { exams });
     }
-    const exams = db().exams.filter(e => e.published && isAssigned(e, user)).map(e => studentExamView(store, e, user, t));
+    const exams = db().exams.filter(e => e.published && isAssigned(e, user)).map(e => studentExamView(db(), e, user, t));
     send(res, 200, { exams });
   });
 
-  route('GET', '/api/exams/:id', 'profesor', async ({ params, res }) => send(res, 200, { exam: findExam(params.id) }));
+  route('GET', '/api/exams/:id', 'profesor', async ({ params, res, db, need, uow }) => {
+    await need('exams');
+    send(res, 200, { exam: findExam(db, params.id) });
+  });
 
-  route('POST', '/api/exams', 'profesor', async ({ user, body, res }) => {
-    const exam = { id: store.id(), ...sanitizeExam(body, store, null), createdBy: user.id, createdAt: new Date(now()).toISOString() };
+  route('POST', '/api/exams', 'profesor', async ({ user, body, res, db, need, uow }) => {
+    await need('exams');
+    const exam = { id: store.id(), ...sanitizeExam(body, db(), null), createdBy: user.id, createdAt: new Date(now()).toISOString() };
     db().exams.push(exam);
-    store.save();
     send(res, 201, { exam });
   });
 
-  route('PUT', '/api/exams/:id', 'profesor', async ({ params, body, res }) => {
-    const exam = findExam(params.id);
-    Object.assign(exam, sanitizeExam(body, store, exam), { updatedAt: new Date(now()).toISOString() });
-    store.save();
+  route('PUT', '/api/exams/:id', 'profesor', async ({ params, body, res, db, need, uow }) => {
+    await need('exams');
+    const exam = findExam(db, params.id);
+    Object.assign(exam, sanitizeExam(body, db(), exam), { updatedAt: new Date(now()).toISOString() });
     send(res, 200, { exam });
   });
 
-  route('DELETE', '/api/exams/:id', 'profesor', async ({ params, res }) => {
-    findExam(params.id);
+  route('DELETE', '/api/exams/:id', 'profesor', async ({ params, res, db, need, uow }) => {
+    await need('exams', 'attempts');
+    findExam(db, params.id);
     db().exams = db().exams.filter(e => e.id !== params.id);
     db().attempts = db().attempts.filter(a => a.examId !== params.id);
-    store.save();
     send(res, 200, { ok: true });
   });
 
-  route('GET', '/api/exams/:id/results', 'profesor', async ({ params, res }) => {
-    const exam = findExam(params.id);
+  route('GET', '/api/exams/:id/results', 'profesor', async ({ params, res, db, need, uow }) => {
+    await need('exams', 'attempts');
+    const exam = findExam(db, params.id);
     const users = new Map(db().users.map(u => [u.id, u]));
     const rows = db().attempts.filter(a => a.examId === exam.id && a.submittedAt).map(a => {
       const u = users.get(a.userId);
@@ -476,11 +500,12 @@ function createApp(store, opts = {}) {
     send(res, 200, { exam: { id: exam.id, title: exam.title, passPct: exam.passPct, questionCount: exam.questions.length }, rows, pending, questions });
   });
 
-  route('POST', '/api/exams/:id/start', 'alumno', async ({ user, params, res }) => {
-    const exam = findExam(params.id);
+  route('POST', '/api/exams/:id/start', 'alumno', async ({ user, params, res, db, need, uow }) => {
+    await need('exams', 'attempts');
+    const exam = findExam(db, params.id);
     if (!exam.published || !isAssigned(exam, user)) fail(404, 'El examen no existe.');
     const t = now();
-    closeExpired(store, exam, user.id, t);
+    closeExpired(db(), exam, user.id, t);
     let attempt = db().attempts.find(a => a.examId === exam.id && a.userId === user.id && !a.submittedAt);
     if (!attempt) {
       const done = db().attempts.filter(a => a.examId === exam.id && a.userId === user.id && a.submittedAt).length;
@@ -494,7 +519,6 @@ function createApp(store, opts = {}) {
       }
       attempt = { id: store.id(), examId: exam.id, userId: user.id, startedAt, deadline: deadlineOf(exam, startedAt), order, submittedAt: null };
       db().attempts.push(attempt);
-      store.save();
     }
     const byId = new Map(exam.questions.map(q => [q.id, q]));
     const ids = (attempt.order || []).filter(id => byId.has(id));
@@ -508,10 +532,11 @@ function createApp(store, opts = {}) {
     });
   });
 
-  route('POST', '/api/attempts/:id/submit', 'alumno', async ({ user, params, body, res }) => {
+  route('POST', '/api/attempts/:id/submit', 'alumno', async ({ user, params, body, res, db, need, uow }) => {
+    await need('exams', 'attempts');
     const attempt = db().attempts.find(a => a.id === params.id && a.userId === user.id) || fail(404, 'El intento no existe.');
     if (attempt.submittedAt) fail(409, 'Este intento ya fue entregado.');
-    const exam = findExam(attempt.examId);
+    const exam = findExam(db, attempt.examId);
     const answers = {};
     if (body.answers && typeof body.answers === 'object') {
       for (const q of exam.questions) {
@@ -519,16 +544,17 @@ function createApp(store, opts = {}) {
         if (Number.isInteger(v) && v >= 0 && v < q.options.length) answers[q.id] = v;
       }
     }
-    finalize(store, attempt, exam, answers, now());
+    finalize(attempt, exam, answers, now());
     send(res, 200, { result: attemptResult(attempt, exam, exam.showAnswers) });
   });
 
-  route('GET', '/api/attempts/:id', 'any', async ({ user, params, res }) => {
+  route('GET', '/api/attempts/:id', 'any', async ({ user, params, res, db, need, uow }) => {
+    await need('exams', 'attempts');
     const attempt = db().attempts.find(a => a.id === params.id) || fail(404, 'El intento no existe.');
     const teacher = user.role === 'profesor';
     if (!teacher && attempt.userId !== user.id) fail(404, 'El intento no existe.');
     if (!attempt.submittedAt) fail(409, 'El intento todavía no fue entregado.');
-    const exam = findExam(attempt.examId);
+    const exam = findExam(db, attempt.examId);
     const result = attemptResult(attempt, exam, teacher || exam.showAnswers);
     if (teacher) {
       const u = db().users.find(x => x.id === attempt.userId);
@@ -546,7 +572,8 @@ function createApp(store, opts = {}) {
     'otro': 'Otro problema',
   };
 
-  route('POST', '/api/reports', 'any', async ({ user, body, res }) => {
+  route('POST', '/api/reports', 'any', async ({ user, body, res, db, need, uow }) => {
+    await need('reports');
     const reason = Object.hasOwn(REASONS, body.reason) ? body.reason : fail(400, 'Elige el motivo del reporte.');
     const open = db().reports.filter(r => r.userId === user.id && r.status === 'abierto').length;
     if (open >= 50) fail(429, 'Tienes muchos reportes pendientes de revisión. Espera a que el profesor los revise.');
@@ -560,11 +587,11 @@ function createApp(store, opts = {}) {
       status: 'abierto', createdAt: new Date(now()).toISOString(), resolvedAt: null,
     };
     db().reports.push(report);
-    store.save();
     send(res, 201, { ok: true });
   });
 
-  route('GET', '/api/reports', 'profesor', async ({ res }) => {
+  route('GET', '/api/reports', 'profesor', async ({ res, db, need, uow }) => {
+    await need('reports');
     const users = new Map(db().users.map(u => [u.id, u]));
     const reports = db().reports.map(r => ({
       ...r, reasonLabel: REASONS[r.reason],
@@ -574,17 +601,18 @@ function createApp(store, opts = {}) {
     send(res, 200, { reports, open: reports.filter(r => r.status === 'abierto').length });
   });
 
-  route('PUT', '/api/reports/:id', 'profesor', async ({ params, body, res }) => {
+  route('PUT', '/api/reports/:id', 'profesor', async ({ params, body, res, db, need, uow }) => {
+    await need('reports');
     const r = db().reports.find(x => x.id === params.id) || fail(404, 'El reporte no existe.');
     if (!['abierto', 'resuelto'].includes(body.status)) fail(400, 'Estado inválido.');
     r.status = body.status;
     r.resolvedAt = body.status === 'resuelto' ? new Date(now()).toISOString() : null;
-    store.save();
     send(res, 200, { ok: true });
   });
 
   /* --- Panorama del curso por tema del temario (profesor) --- */
-  route('GET', '/api/class/topics', 'profesor', async ({ res }) => {
+  route('GET', '/api/class/topics', 'profesor', async ({ res, db, need, uow }) => {
+    await uow.loadAllKeys('progress');
     const students = db().users.filter(u => u.role === 'alumno');
     const topics = {};
     let mockTakers = 0;
@@ -605,7 +633,9 @@ function createApp(store, opts = {}) {
   });
 
   /* --- Usuarios (profesor) --- */
-  route('GET', '/api/users', 'profesor', async ({ res }) => {
+  route('GET', '/api/users', 'profesor', async ({ res, db, need, uow }) => {
+    await need('attempts');
+    await uow.loadAllKeys('progress');
     const users = db().users.map(u => {
       const p = db().progress[u.id];
       const done = db().attempts.filter(a => a.userId === u.id && a.submittedAt);
@@ -622,7 +652,9 @@ function createApp(store, opts = {}) {
     send(res, 200, { users });
   });
 
-  route('GET', '/api/users/:id', 'profesor', async ({ params, res }) => {
+  route('GET', '/api/users/:id', 'profesor', async ({ params, res, db, need, uow }) => {
+    await need('exams', 'attempts');
+    await uow.loadKeys('progress', [params.id]);
     const u = db().users.find(x => x.id === params.id) || fail(404, 'El usuario no existe.');
     const exams = new Map(db().exams.map(e => [e.id, e]));
     const attempts = db().attempts.filter(a => a.userId === u.id && a.submittedAt).map(a => ({
@@ -631,32 +663,39 @@ function createApp(store, opts = {}) {
     send(res, 200, { user: publicUser(u), progress: db().progress[u.id] || null, attempts });
   });
 
-  route('PUT', '/api/users/:id/role', 'profesor', async ({ user, params, body, res }) => {
+  route('PUT', '/api/users/:id/role', 'profesor', async ({ user, params, body, res, db, need, uow }) => {
     const target = db().users.find(x => x.id === params.id) || fail(404, 'El usuario no existe.');
     const role = body.role === 'profesor' ? 'profesor' : body.role === 'alumno' ? 'alumno' : fail(400, 'Rol inválido.');
     if (target.id === user.id && role === 'alumno' && db().users.filter(u => u.role === 'profesor').length === 1) {
       fail(400, 'Eres el único profesor: asigna otro profesor antes de cambiar tu rol.');
     }
     target.role = role;
-    store.save();
     send(res, 200, { user: publicUser(target) });
   });
 
-  route('PUT', '/api/users/:id/password', 'profesor', async ({ params, body, res }) => {
+  route('PUT', '/api/users/:id/password', 'profesor', async ({ params, body, res, db, need, uow }) => {
+    await uow.loadWhere('sessions', 'userId', params.id);
     const target = db().users.find(x => x.id === params.id) || fail(404, 'El usuario no existe.');
     const pw = typeof body.password === 'string' ? body.password : '';
     if (pw.length < 8) fail(400, 'La contraseña debe tener al menos 8 caracteres.');
     target.password = auth.hashPassword(pw);
     // Cierra las sesiones abiertas de ese usuario
     for (const [k, s] of Object.entries(db().sessions)) if (s.userId === target.id) delete db().sessions[k];
-    store.save();
     send(res, 200, { ok: true });
   });
 
   /* --- Despachador --- */
+  /* Captura la respuesta del manejador para enviarla recién después de guardar los cambios. */
+  const capture = () => ({
+    status: 200, headers: {}, body: '',
+    writeHead(status, headers) { this.status = status; this.headers = headers || {}; },
+    end(body) { this.body = body || ''; },
+  });
+
   return async function handler(req, res) {
     const { pathname } = new URL(req.url, 'http://x');
     if (!pathname.startsWith('/api/')) {
+      if (!serveFiles) { res.writeHead(404); return res.end(); }
       if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
       return serveStatic(req, res);
     }
@@ -672,14 +711,19 @@ function createApp(store, opts = {}) {
       if (!matched) fail(pathMatched ? 405 : 404, pathMatched ? 'Método no permitido.' : 'Ruta no encontrada.');
       const { r, m } = matched;
       const params = Object.fromEntries(r.keys.map((k, i) => [k, m[i + 1]]));
+      const uow = await store.begin();
       let user = null;
       if (r.role) {
-        user = auth.sessionUser(store, req);
+        user = await auth.sessionUser(uow, req);
         if (!user) fail(401, 'Tu sesión expiró. Inicia sesión de nuevo.');
         if (r.role !== 'any' && user.role !== r.role) fail(403, 'No tienes permiso para esta acción.');
       }
       const body = ['POST', 'PUT'].includes(req.method) ? await readJson(req) : {};
-      await r.handler({ req, res, params, body, user });
+      const out = capture();
+      await r.handler({ req, res: out, params, body, user, uow, db: () => uow.data, need: (...cols) => uow.load(...cols) });
+      await uow.commit();
+      res.writeHead(out.status, out.headers);
+      res.end(out.body);
     } catch (e) {
       if (e instanceof HttpError) return send(res, e.status, { error: e.message });
       console.error(e);

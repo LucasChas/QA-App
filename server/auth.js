@@ -22,13 +22,13 @@ function verifyPassword(password, stored) {
 /* En el almacén solo se guarda el hash del token, nunca el token en claro. */
 const tokenKey = token => crypto.createHash('sha256').update(token).digest('hex');
 
-function createSession(store, userId) {
+/* Las funciones reciben la unidad de trabajo de la solicitud (uow); el guardado ocurre en uow.commit(). */
+function createSession(uow, userId) {
   const token = crypto.randomBytes(32).toString('base64url');
-  store.data.sessions[tokenKey(token)] = {
+  uow.data.sessions[tokenKey(token)] = {
     userId,
     expires: Date.now() + SESSION_DAYS * 864e5,
   };
-  store.save();
   return token;
 }
 
@@ -41,26 +41,27 @@ function parseCookies(header) {
   return out;
 }
 
-function sessionUser(store, req) {
+async function sessionUser(uow, req) {
   const token = parseCookies(req.headers.cookie)[COOKIE];
   if (!token) return null;
   const key = tokenKey(token);
-  const s = store.data.sessions[key];
+  await uow.loadKeys('sessions', [key]);
+  const s = uow.data.sessions[key];
   if (!s) return null;
   if (s.expires < Date.now()) {
-    delete store.data.sessions[key];
-    store.save();
+    delete uow.data.sessions[key];
     return null;
   }
-  return store.data.users.find(u => u.id === s.userId) || null;
+  await uow.load('users');
+  return uow.data.users.find(u => u.id === s.userId) || null;
 }
 
-function destroySession(store, req) {
+async function destroySession(uow, req) {
   const token = parseCookies(req.headers.cookie)[COOKIE];
-  if (token) {
-    delete store.data.sessions[tokenKey(token)];
-    store.save();
-  }
+  if (!token) return;
+  const key = tokenKey(token);
+  await uow.loadKeys('sessions', [key]);
+  delete uow.data.sessions[key];
 }
 
 function sessionCookie(token, secure) {

@@ -1,0 +1,6 @@
+data/
+test/
+scripts/
+docs/
+*.tmp
+.env*
