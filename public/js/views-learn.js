@@ -85,6 +85,7 @@ const LearnViews = (() => {
           h('p', { class: 'muted small' }, next ? `${s.xp} XP · faltan ${next.xp - s.xp} para ${next.name}` : `${s.xp} XP · nivel máximo`),
           h('a', { class: 'link', href: '#/progreso' }, 'Ver progreso e insignias'))
       ),
+      studyRow(),
       h('div', { class: 'dash two' },
         h('section', { class: 'panel' },
           h('div', { class: 'panel-head' }, h('h2', null, 'Avance por capítulo'), h('a', { class: 'link', href: '#/juegos' }, 'Todos los juegos')),
@@ -119,6 +120,29 @@ const LearnViews = (() => {
         e.dueDate ? h('span', { class: 'muted small' }, `Vence ${fmtDay(e.dueDate)}`) : chip(e.status === 'en-curso' ? 'En curso' : 'Disponible', 'accent')))) :
         empty('Sin exámenes pendientes', 'Cuando tu profesor publique un examen aparecerá aquí.'));
     }).catch(err => examsBox.replaceChildren(h('p', { class: 'muted' }, err.message)));
+  }
+
+  function studyRow() {
+    const due = QA.reviewDue().length;
+    const daily = QA.state.daily.date === QA.dayStr(Date.now()) ? QA.state.daily.count : 0;
+    const est = StudyViews.estimate();
+    const last = QA.state.mocks[QA.state.mocks.length - 1];
+    return h('div', { class: 'dash three' },
+      h('section', { class: 'panel compact' },
+        h('span', { class: 'eyebrow' }, 'Repaso de hoy'),
+        h('div', { class: 'big-num' }, due),
+        h('p', { class: 'muted small' }, due ? 'preguntas falladas vuelven para que las afiances' : 'nada pendiente por hoy'),
+        due ? btn('Repasar', { small: true, variant: 'primary', href: '#/repaso' }) : btn('Ver repaso', { small: true, href: '#/repaso' })),
+      h('section', { class: 'panel compact' },
+        h('span', { class: 'eyebrow' }, 'Meta diaria'),
+        h('div', { class: 'big-num' }, `${Math.min(daily, QA.DAILY_GOAL)}/${QA.DAILY_GOAL}`),
+        meter((Math.min(daily, QA.DAILY_GOAL) / QA.DAILY_GOAL) * 100, daily >= QA.DAILY_GOAL ? 'ok' : ''),
+        h('p', { class: 'muted small' }, `Racha: ${QA.state.streak.count} ${QA.state.streak.count === 1 ? 'día' : 'días'}`)),
+      h('section', { class: 'panel compact' },
+        h('span', { class: 'eyebrow' }, 'Examen CTFL'),
+        h('div', { class: 'big-num' }, last ? `${last.score}/40` : est.ready ? `≈${est.score}/40` : '—'),
+        h('p', { class: 'muted small' }, last ? 'último simulacro oficial (aprueba con 26)' : est.ready ? 'estimación según tus respuestas' : 'rinde un simulacro con el formato real'),
+        btn('Simulacro oficial', { small: true, href: '#/simulacro' })));
   }
 
   /* ---------- Juegos ---------- */
@@ -156,6 +180,7 @@ const LearnViews = (() => {
     if (!g) return app.replaceChildren(empty('Juego no encontrado', null, btn('Ver juegos', { href: '#/juegos' })));
     const r = QA.getResult(g.id);
     const playRoot = h('div', { class: 'play' });
+    QA.setContext({ gameId: g.id, sec: QA.GAME_SEC[g.id] || null });
     app.replaceChildren(
       h('a', { class: 'back', href: '#/juegos' }, icon('left', 16), 'Juegos'),
       h('header', { class: 'game-head' },
@@ -359,6 +384,7 @@ const LearnViews = (() => {
     const { idx } = QA.levelFor(s.xp);
     app.replaceChildren(
       pageHead('Progreso', `${s.xp} XP acumulados. Tu progreso se guarda en tu cuenta.`),
+      StudyViews.readinessPanel(),
       h('section', { class: 'panel' },
         h('h2', null, 'Insignias'),
         h('div', { class: 'badges' }, QA.BADGES.map(b => {
@@ -382,8 +408,8 @@ const LearnViews = (() => {
               return h('tr', null, h('td', null, h('a', { href: `#/juego/${g.id}` }, g.title)), h('td', null, starsHtml(r ? r.stars : 0)),
                 h('td', { class: 'num' }, r ? `${r.best}%` : '—'), h('td', { class: 'num' }, r ? r.plays : 0));
             })))))),
-      h('div', { class: 'actions' }, btn('Reiniciar progreso de juegos', { variant: 'danger', icon: 'trash', onclick: async () => {
-        if (await UI.confirm('Reiniciar progreso', 'Se borrarán tu XP, estrellas e insignias de los juegos. Los exámenes no se ven afectados.', 'Reiniciar', 'danger')) {
+      h('div', { class: 'actions' }, btn('Reiniciar mi progreso', { variant: 'danger', icon: 'trash', onclick: async () => {
+        if (await UI.confirm('Reiniciar progreso', 'Se borrarán tu XP, estrellas, insignias, estadísticas por tema, cola de repaso e historial de simulacros. Los exámenes del profesor no se ven afectados.', 'Reiniciar', 'danger')) {
           QA.resetProgress(); progress(app);
         }
       } })));

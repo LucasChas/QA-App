@@ -749,12 +749,60 @@ table.dt thead th, table.dt .section td { background: var(--surface-2); font-wei
   .tc-row .chip-s { grid-column: 2; justify-self: start; }
 }
 
-/* ---------- Impresión: las filminas, una por página ---------- */
+/* ---------- Estudio: repaso, simulacro, preparación ---------- */
+.nav-count {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 500 .72rem/20px var(--font-mono);
+  text-align: center;
+}
+.nav-item .nav-count { flex-shrink: 0; }
+.dash.three { grid-template-columns: repeat(3, 1fr); }
+.panel.compact { display: grid; gap: 6px; align-content: start; }
+.panel.compact > * + * { margin-top: 0; }
+.panel.compact .btn { justify-self: start; margin-top: 4px; }
+.big-num { font: 600 1.8rem/1.1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.boxes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.boxes li { display: grid; gap: 2px; justify-items: center; text-align: center; padding: 12px 6px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+.box-n { font: 600 1.4rem var(--font-mono); }
+.box-l { font-size: .85rem; font-weight: 500; }
+.readiness-top { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.estimate { display: grid; gap: 4px; align-content: start; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.estimate strong { font: 600 1.6rem/1.1 var(--font-mono); }
+.estimate .chip-s { justify-self: start; }
+table.data.topics tr.group td { background: var(--surface-2); font-weight: 600; font-size: .8rem; color: var(--muted); padding-top: 6px; padding-bottom: 6px; }
+.panel table.data.topics tr.group td:first-child { padding-left: 10px; }
+.meter-cell { width: 34%; min-width: 120px; }
+.q-card.flagged { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
+.q-nav a.flag { border-color: var(--warn); box-shadow: inset 0 -3px 0 var(--warn); }
+.q-card .link-btn { margin-top: 10px; }
+.quote-q { margin: 0; padding: 10px 14px; border-left: 3px solid var(--line-strong); background: var(--surface-2); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: .92rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback + .link-btn, .feedback + p + .link-btn { margin-top: 8px; display: inline-block; }
+@media (max-width: 900px) {
+  .dash.three, .readiness-top { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .boxes { grid-template-columns: repeat(3, 1fr); }
+}
+
+.rubric { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rubric li { display: grid; gap: 2px; padding: 8px 12px; border-radius: var(--r-sm); }
+.rubric li.ok { background: var(--ok-soft); }
+.rubric li.bad { background: var(--warn-soft); }
+
+/* ---------- Impresión ---------- */
 @media print {
-  @page { size: landscape; margin: 10mm; }
   body { background: #fff; }
-  .sidebar, .mobile-bar, .toasts, .content > :not(.print-deck) { display: none !important; }
+  .sidebar, .mobile-bar, .toasts, .scrim, .no-print, .actions, .back { display: none !important; }
   .content { margin: 0; padding: 0; max-width: none; }
+  .panel, .stat { break-inside: avoid; }
+  /* En las filminas se imprime solo el mazo, una filmina por página */
+  .content:has(.print-deck) > :not(.print-deck) { display: none !important; }
   .print-deck { display: block; }
   .print-deck .slide { break-after: page; border: 1px solid #ccc; width: 100%; }
 }
+@media print { @page { margin: 10mm; } }

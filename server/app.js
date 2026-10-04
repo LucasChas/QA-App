@@ -57,18 +57,75 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 const publicUser = u => ({ id: u.id, name: u.name, email: u.email, role: u.role, createdAt: u.createdAt });
 
+const clamp = (v, max, min = 0) => Math.min(max, Math.max(min, Math.round(Number(v) || 0)));
+const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SEC_RE = /^[1-6]\.\d$/;
+
 function sanitizeProgress(p) {
   if (!p || typeof p !== 'object') fail(400, 'Progreso inválido.');
   const results = {};
   if (p.results && typeof p.results === 'object') {
     for (const [k, r] of Object.entries(p.results).slice(0, 100)) {
       if (!/^[\w-]{1,60}$/.test(k) || !r || typeof r !== 'object') continue;
-      const clamp = (v, max) => Math.min(max, Math.max(0, Math.round(Number(v) || 0)));
       results[k] = { best: clamp(r.best, 100), plays: clamp(r.plays, 1e6), stars: clamp(r.stars, 3), last: clamp(r.last, 100) };
     }
   }
   const badges = Array.isArray(p.badges) ? p.badges.filter(b => typeof b === 'string' && /^[\w-]{1,60}$/.test(b)).slice(0, 50) : [];
-  return { xp: int(p.xp ?? 0, 'xp', 0, 1e7), results, badges, updatedAt: new Date().toISOString() };
+
+  // Estadísticas por tema del temario
+  const topics = {};
+  if (p.topics && typeof p.topics === 'object') {
+    for (const [k, t] of Object.entries(p.topics).slice(0, 40)) {
+      if (!SEC_RE.test(k) || !t || typeof t !== 'object') continue;
+      const seen = clamp(t.seen, 1e6);
+      topics[k] = { seen, correct: Math.min(seen, clamp(t.correct, 1e6)) };
+    }
+  }
+
+  // Cola de repaso espaciado
+  const review = [];
+  if (Array.isArray(p.review)) {
+    for (const r of p.review.slice(-250)) {
+      if (!r || typeof r !== 'object' || typeof r.key !== 'string' || !/^[\w-]{1,60}$/.test(r.key)) continue;
+      if (!Array.isArray(r.options) || r.options.length < 2 || r.options.length > 8) continue;
+      const options = r.options.map(o => text(o, 500));
+      const answer = text(r.answer, 500);
+      if (!options.includes(answer)) continue;
+      review.push({
+        key: r.key, q: text(r.q, 2000), context: text(r.context, 4000), options, answer,
+        explain: text(r.explain, 2000), sec: SEC_RE.test(r.sec) ? r.sec : '', src: text(r.src, 60),
+        box: clamp(r.box, 5, 1), due: clamp(r.due, 9e15),
+      });
+    }
+  }
+
+  // Historial de simulacros oficiales
+  const mocks = [];
+  if (Array.isArray(p.mocks)) {
+    for (const m of p.mocks.slice(-30)) {
+      if (!m || typeof m !== 'object') continue;
+      const byCh = {};
+      if (m.byCh && typeof m.byCh === 'object') {
+        for (const ch of ['1', '2', '3', '4', '5', '6']) {
+          const v = m.byCh[ch];
+          if (Array.isArray(v)) byCh[ch] = [clamp(v[0], 100), clamp(v[1], 100)];
+        }
+      }
+      const max = clamp(m.max, 100, 1);
+      const score = Math.min(max, clamp(m.score, 100));
+      mocks.push({ date: Number.isNaN(Date.parse(m.date)) ? new Date().toISOString() : new Date(m.date).toISOString(),
+        score, max, pct: Math.round((score / max) * 100), passed: Boolean(m.passed), minutes: clamp(m.minutes, 300), byCh });
+    }
+  }
+
+  const daily = p.daily && DATE_RE.test(p.daily.date) ? { date: p.daily.date, count: clamp(p.daily.count, 1e5) } : { date: '', count: 0 };
+  const streak = p.streak && (p.streak.last === '' || DATE_RE.test(p.streak.last)) ? { count: clamp(p.streak.count, 1e5), last: p.streak.last } : { count: 0, last: '' };
+
+  return {
+    xp: int(p.xp ?? 0, 'xp', 0, 1e7), results, badges, topics, review, mocks, daily, streak,
+    mastered: clamp(p.mastered, 1e6), updatedAt: new Date().toISOString(),
+  };
 }
 
 function sanitizeExam(body, store, existing) {
@@ -478,6 +535,73 @@ function createApp(store, opts = {}) {
       result.user = u ? { id: u.id, name: u.name, email: u.email } : null;
     }
     send(res, 200, { result });
+  });
+
+  /* --- Reportes de preguntas (cualquier usuario reporta; el profesor revisa) --- */
+  const REASONS = {
+    'respuesta-incorrecta': 'La respuesta marcada como correcta es incorrecta',
+    'explicacion': 'La explicación es confusa o falta',
+    'redaccion': 'El enunciado es ambiguo o tiene errores',
+    'desactualizada': 'No coincide con el temario v4.0',
+    'otro': 'Otro problema',
+  };
+
+  route('POST', '/api/reports', 'any', async ({ user, body, res }) => {
+    const reason = Object.hasOwn(REASONS, body.reason) ? body.reason : fail(400, 'Elige el motivo del reporte.');
+    const open = db().reports.filter(r => r.userId === user.id && r.status === 'abierto').length;
+    if (open >= 50) fail(429, 'Tienes muchos reportes pendientes de revisión. Espera a que el profesor los revise.');
+    const report = {
+      id: store.id(), userId: user.id,
+      source: str(body.source || 'quiz', 'origen', { min: 1, max: 60 }),
+      key: typeof body.key === 'string' && /^[\w-]{1,60}$/.test(body.key) ? body.key : '',
+      text: str(body.text, 'pregunta', { min: 1, max: 2000 }),
+      reason,
+      comment: typeof body.comment === 'string' ? body.comment.trim().slice(0, 1000) : '',
+      status: 'abierto', createdAt: new Date(now()).toISOString(), resolvedAt: null,
+    };
+    db().reports.push(report);
+    store.save();
+    send(res, 201, { ok: true });
+  });
+
+  route('GET', '/api/reports', 'profesor', async ({ res }) => {
+    const users = new Map(db().users.map(u => [u.id, u]));
+    const reports = db().reports.map(r => ({
+      ...r, reasonLabel: REASONS[r.reason],
+      user: users.has(r.userId) ? { name: users.get(r.userId).name, email: users.get(r.userId).email } : { name: '(cuenta eliminada)', email: '' },
+      sameKey: r.key ? db().reports.filter(x => x.key === r.key && x.status === 'abierto').length : 1,
+    })).sort((a, b) => (a.status === b.status ? b.createdAt.localeCompare(a.createdAt) : a.status === 'abierto' ? -1 : 1));
+    send(res, 200, { reports, open: reports.filter(r => r.status === 'abierto').length });
+  });
+
+  route('PUT', '/api/reports/:id', 'profesor', async ({ params, body, res }) => {
+    const r = db().reports.find(x => x.id === params.id) || fail(404, 'El reporte no existe.');
+    if (!['abierto', 'resuelto'].includes(body.status)) fail(400, 'Estado inválido.');
+    r.status = body.status;
+    r.resolvedAt = body.status === 'resuelto' ? new Date(now()).toISOString() : null;
+    store.save();
+    send(res, 200, { ok: true });
+  });
+
+  /* --- Panorama del curso por tema del temario (profesor) --- */
+  route('GET', '/api/class/topics', 'profesor', async ({ res }) => {
+    const students = db().users.filter(u => u.role === 'alumno');
+    const topics = {};
+    let mockTakers = 0;
+    let mockPassing = 0;
+    for (const s of students) {
+      const p = db().progress[s.id];
+      if (!p) continue;
+      for (const [sec, t] of Object.entries(p.topics || {})) {
+        const agg = topics[sec] || (topics[sec] = { seen: 0, correct: 0, students: 0 });
+        agg.seen += t.seen;
+        agg.correct += t.correct;
+        agg.students++;
+      }
+      const last = (p.mocks || [])[p.mocks.length - 1];
+      if (last) { mockTakers++; if (last.passed) mockPassing++; }
+    }
+    send(res, 200, { students: students.length, topics, mockTakers, mockPassing });
   });
 
   /* --- Usuarios (profesor) --- */

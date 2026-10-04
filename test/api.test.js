@@ -177,3 +177,46 @@ test('archivos estáticos sin path traversal', async () => {
   const bad = await fetch(base + '/..%2fpackage.json');
   assert.notEqual(bad.status, 200);
 });
+
+test('el progreso guarda temas, repaso y simulacros saneados', async () => {
+  const r = await beto('PUT', '/api/progress', {
+    xp: 10, results: {}, badges: [],
+    topics: { '4.2': { seen: 10, correct: 4 }, 'x.y': { seen: 1, correct: 1 }, '1.3': { seen: 2, correct: 9 } },
+    review: [
+      { key: 'qabc', q: '¿Pregunta?', options: ['A', 'B'], answer: 'B', explain: '', sec: '4.2', box: 9, due: 123 },
+      { key: 'mal', q: 'x', options: ['A', 'B'], answer: 'C' },
+    ],
+    mocks: [{ date: '2026-10-01T10:00:00Z', score: 30, max: 40, passed: true, minutes: 60, byCh: { 1: [6, 8] } }],
+    daily: { date: '2026-10-01', count: 12 }, streak: { count: 3, last: '2026-10-01' }, mastered: 2,
+  });
+  assert.equal(r.status, 200);
+  const me = await beto('GET', '/api/me');
+  const p = me.body.progress;
+  assert.deepEqual(Object.keys(p.topics).sort(), ['1.3', '4.2']);
+  assert.equal(p.topics['1.3'].correct, 2, 'correctas no puede superar vistas');
+  assert.equal(p.review.length, 1, 'se descarta la respuesta que no está entre las opciones');
+  assert.equal(p.review[0].box, 5);
+  assert.equal(p.mocks[0].pct, 75);
+  assert.equal(p.streak.count, 3);
+});
+
+test('reportes de preguntas: el alumno reporta y el profesor resuelve', async () => {
+  assert.equal((await beto('POST', '/api/reports', { text: 'Pregunta X', reason: 'inventado' })).status, 400);
+  const r = await beto('POST', '/api/reports', { source: 'simulacro', key: 'qabc', text: '¿Qué es un defecto?', reason: 'respuesta-incorrecta', comment: 'La B también es correcta' });
+  assert.equal(r.status, 201);
+  assert.equal((await beto('GET', '/api/reports')).status, 403);
+  const list = await prof('GET', '/api/reports');
+  assert.equal(list.body.open, 1);
+  assert.equal(list.body.reports[0].user.name, 'Beto');
+  assert.equal((await prof('PUT', `/api/reports/${list.body.reports[0].id}`, { status: 'resuelto' })).status, 200);
+  assert.equal((await prof('GET', '/api/reports')).body.open, 0);
+});
+
+test('el profesor ve los temas del curso agregados', async () => {
+  const r = await prof('GET', '/api/class/topics');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.topics['4.2'].seen, 10);
+  assert.equal(r.body.mockTakers, 1);
+  assert.equal(r.body.mockPassing, 1);
+  assert.equal((await beto('GET', '/api/class/topics')).status, 403);
+});

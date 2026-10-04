@@ -84,9 +84,18 @@
   }
 
   /* ---------- Shell ---------- */
-  function navItem(href, label, ic) {
-    return h('a', { class: 'nav-item', href, 'data-href': href }, icon(ic), h('span', null, label));
+  function navItem(href, label, ic, countKey) {
+    return h('a', { class: 'nav-item', href, 'data-href': href }, icon(ic), h('span', null, label),
+      countKey ? h('span', { class: 'nav-count', 'data-count': countKey, hidden: true }) : null);
   }
+
+  /* Contadores del menú: preguntas para repasar hoy y reportes abiertos (profesor). */
+  function updateCounts() {
+    const set = (k, n) => document.querySelectorAll(`[data-count="${k}"]`).forEach(el => { el.textContent = n; el.hidden = !n; });
+    set('review', QA.reviewDue().length);
+    if (user && user.role === 'profesor') API.get('/api/reports').then(r => set('reports', r.open)).catch(() => {});
+  }
+  window.addEventListener('qa:counts', updateCounts);
 
   function buildShell() {
     const teacher = user.role === 'profesor';
@@ -108,11 +117,14 @@
         navItem('#/biblioteca', 'Biblioteca', 'book'),
         navItem('#/glosario', 'Glosario', 'glossary'),
         h('span', { class: 'nav-group' }, 'Evaluación'),
+        navItem('#/repaso', 'Repaso', 'cycle', 'review'),
+        navItem('#/simulacro', 'Simulacro oficial', 'graduation'),
         teacher ? null : navItem('#/examenes', 'Mis exámenes', 'clipboard'),
         navItem('#/progreso', 'Progreso', 'chart'),
         teacher ? h('span', { class: 'nav-group' }, 'Profesor') : null,
         teacher ? navItem('#/profesor/examenes', 'Exámenes', 'clipboard') : null,
-        teacher ? navItem('#/profesor/alumnos', 'Alumnos', 'users') : null),
+        teacher ? navItem('#/profesor/alumnos', 'Alumnos', 'users') : null,
+        teacher ? navItem('#/profesor/reportes', 'Reportes', 'alert', 'reports') : null),
       h('div', { class: 'nav sidebar-foot' },
         navItem('#/cuenta', user.name, 'user'),
         themeBtn,
@@ -148,6 +160,10 @@
     [/^\/glosario$/, app => LearnViews.glossary(app)],
     [/^\/progreso$/, app => LearnViews.progress(app)],
     [/^\/cuenta$/, app => LearnViews.account(app, user)],
+    [/^\/repaso$/, app => StudyViews.review(app)],
+    [/^\/simulacro$/, app => StudyViews.mock(app)],
+    [/^\/practica$/, app => StudyViews.weakPractice(app)],
+    [/^\/profesor\/reportes$/, app => TeacherViews.reports(app), 'profesor'],
     [/^\/examenes$/, app => ExamViews.list(app), 'alumno'],
     [/^\/examenes\/([\w-]+)$/, (app, id) => ExamViews.intro(app, id), 'alumno'],
     [/^\/resultado\/([\w-]+)$/, (app, id) => ExamViews.result(app, id, false)],
@@ -165,6 +181,8 @@
     const app = document.getElementById('app');
     const path = (location.hash || '#/').slice(1) || '/';
     document.body.classList.remove('nav-open');
+    QA.setContext(null);
+    updateCounts();
     document.querySelectorAll('.nav-item[data-href]').forEach(a => {
       const href = a.dataset.href.slice(1);
       a.classList.toggle('active', href === '/' ? path === '/' : path === href || path.startsWith(href + '/') || (href === '/juegos' && path.startsWith('/juego/')));

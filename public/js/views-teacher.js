@@ -167,6 +167,25 @@ const TeacherViews = (() => {
       ]);
     }
 
+    /* Arma 40 preguntas del banco con la distribución por capítulo del examen real. */
+    async function generateOfficial() {
+      const used = model.questions.filter(q => q.q.trim()).length;
+      if (used && !await UI.confirm('Generar simulacro oficial', `Se reemplazarán las ${used} preguntas actuales por 40 preguntas del banco con la distribución del examen real, 60 minutos y 65% para aprobar.`, 'Reemplazar')) return;
+      const strip = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent; };
+      model.questions = [];
+      for (const [ch, n] of Object.entries(QA.EXAM_QUOTA)) {
+        QA.shuffle(QA.questionBank.filter(q => String(q.ch) === ch)).slice(0, n).forEach(b => {
+          const options = QA.shuffle(b.options);
+          model.questions.push({ q: strip(b.q), options, answer: options.indexOf(b.answer), explain: b.explain ? strip(b.explain) : '' });
+        });
+      }
+      f.timeLimit.value = 60;
+      f.passPct.value = 65;
+      if (!f.title.value.trim()) f.title.value = 'Simulacro oficial CTFL v4.0';
+      renderQuestions();
+      QA.toast('40 preguntas generadas con la distribución oficial por capítulo.');
+    }
+
     async function save() {
       err.clear();
       const body = {
@@ -206,7 +225,8 @@ const TeacherViews = (() => {
             qBox,
             h('div', { class: 'row' },
               btn('Agregar pregunta', { icon: 'plus', onclick: () => { model.questions.push({ q: '', options: ['', '', '', ''], answer: 0, explain: '' }); renderQuestions(); } }),
-              btn('Importar del banco ISTQB', { icon: 'book', onclick: importFromBank })))),
+              btn('Importar del banco ISTQB', { icon: 'book', onclick: importFromBank }),
+              btn('Generar simulacro oficial (40)', { icon: 'clipboard', onclick: generateOfficial })))),
         h('aside', { class: 'editor-side' },
           h('section', { class: 'panel form' },
             h('h2', null, 'Configuración'),
@@ -290,7 +310,20 @@ const TeacherViews = (() => {
     let filter = '';
     let users = [];
     const search = h('input', { id: 'st-search', class: 'input', type: 'search', placeholder: 'Buscar por nombre o email', oninput: e => { filter = e.target.value.toLowerCase(); render(); } });
-    app.replaceChildren(pageHead('Alumnos', 'Personas registradas, su avance en los juegos y sus exámenes.'), h('div', { class: 'toolbar' }, search), box);
+    const classBox = h('section', { class: 'panel' }, loading());
+    app.replaceChildren(pageHead('Alumnos', 'Personas registradas, su avance en los juegos y sus exámenes.'), classBox, h('div', { class: 'toolbar' }, search), box);
+    API.get('/api/class/topics').then(c => {
+      const rows = Object.entries(c.topics).filter(([, t]) => t.seen >= 5)
+        .map(([sec, t]) => ({ sec, acc: Math.round((t.correct / t.seen) * 100), students: t.students, seen: t.seen }))
+        .sort((a, b) => a.acc - b.acc).slice(0, 6);
+      classBox.replaceChildren(
+        h('div', { class: 'panel-head' }, h('h2', null, 'Temas que más le cuestan al curso'),
+          h('span', { class: 'muted small' }, c.mockTakers ? `Simulacro oficial: ${c.mockPassing} de ${c.mockTakers} aprobaron su último intento` : 'Nadie rindió aún el simulacro oficial')),
+        rows.length ? h('ol', { class: 'qstats' }, rows.map(r => h('li', null,
+          h('span', { class: 'qs-text' }, h('span', { class: 'ref' }, r.sec), ` ${QA.TOPICS[r.sec] || ''} · ${r.students} ${r.students === 1 ? 'alumno' : 'alumnos'}, ${r.seen} respuestas`),
+          h('span', { class: 'qs-bar' }, meter(r.acc, r.acc < 50 ? 'bad' : r.acc < 75 ? 'warn' : 'ok'), h('span', { class: 'num' }, `${r.acc}%`))))) :
+          h('p', { class: 'muted' }, 'Todavía no hay suficientes respuestas de los alumnos para mostrar tendencias.'));
+    }).catch(e => classBox.replaceChildren(h('p', { class: 'muted' }, e.message)));
 
     function render() {
       const list = users.filter(u => !filter || `${u.name} ${u.email}`.toLowerCase().includes(filter));
@@ -350,7 +383,7 @@ const TeacherViews = (() => {
   function studentDetail(app, id) {
     app.replaceChildren(loading());
     API.get(`/api/users/${id}`).then(({ user, progress, attempts }) => {
-      const p = progress || { xp: 0, results: {}, badges: [] };
+      const p = progress || { xp: 0, results: {}, badges: [], topics: {}, mocks: [], review: [] };
       const { cur } = QA.levelFor(p.xp);
       app.replaceChildren(
         h('a', { class: 'back', href: '#/profesor/alumnos' }, icon('left', 16), 'Alumnos'),
@@ -375,9 +408,57 @@ const TeacherViews = (() => {
               h('a', { href: `#/profesor/intento/${a.id}` }, a.examTitle),
               chip(`${a.pct}%`, a.passed ? 'ok' : 'bad'),
               h('span', { class: 'muted small' }, fmtDay(a.submittedAt))))) :
-              h('p', { class: 'muted' }, 'Todavía no rindió exámenes.'))));
+              h('p', { class: 'muted' }, 'Todavía no rindió exámenes.'))),
+        h('div', { class: 'dash two' },
+          h('section', { class: 'panel' },
+            h('h2', null, 'Aciertos por tema'),
+            Object.keys(p.topics || {}).length ? h('ol', { class: 'qstats' }, Object.entries(p.topics).sort().map(([sec, t]) => {
+              const a = Math.round((t.correct / Math.max(1, t.seen)) * 100);
+              return h('li', null, h('span', { class: 'qs-text' }, h('span', { class: 'ref' }, sec), ` ${QA.TOPICS[sec] || ''} · ${t.seen} respuestas`),
+                h('span', { class: 'qs-bar' }, meter(a, a < 50 ? 'bad' : a < 75 ? 'warn' : 'ok'), h('span', { class: 'num' }, `${a}%`)));
+            })) : h('p', { class: 'muted' }, 'Sin respuestas registradas todavía.')),
+          h('section', { class: 'panel' },
+            h('h2', null, 'Simulacros oficiales'),
+            (p.mocks || []).length ? h('ul', { class: 'mini-list' }, p.mocks.slice().reverse().map(m => h('li', null,
+              h('span', null, fmtDate(m.date)), chip(`${m.score}/${m.max}`, m.passed ? 'ok' : 'bad'), h('span', { class: 'muted small' }, `${m.minutes} min`)))) :
+              h('p', { class: 'muted' }, 'Todavía no rindió simulacros oficiales.'),
+            h('p', { class: 'muted small' }, `Preguntas en su repaso: ${(p.review || []).length} · dominadas: ${p.mastered || 0} · racha: ${(p.streak || {}).count || 0} días`))));
     }).catch(err => app.replaceChildren(empty('No se pudo cargar el alumno', err.message)));
   }
 
-  return { exams, editor, results, students, studentDetail };
+  /* ---------- Reportes de preguntas ---------- */
+  function reports(app) {
+    const box = h('div', null, loading());
+    let showAll = false;
+    let list = [];
+    const toggle = btn('Mostrar también resueltos', { small: true, onclick: () => { showAll = !showAll; toggle.querySelector('span').textContent = showAll ? 'Mostrar solo abiertos' : 'Mostrar también resueltos'; render(); } });
+    app.replaceChildren(pageHead('Reportes de preguntas', 'Errores que alumnos y profesores encontraron en las preguntas. Revisa cada uno y corrige el banco o tus exámenes si corresponde.', toggle), box);
+
+    function render() {
+      const rows = list.filter(r => showAll || r.status === 'abierto');
+      if (!rows.length) return box.replaceChildren(empty(showAll ? 'No hay reportes' : 'No hay reportes abiertos', 'Cuando alguien reporte una pregunta aparecerá aquí.'));
+      box.replaceChildren(h('div', { class: 'exam-list' }, rows.map(r => h('article', { class: 'exam-card' },
+        h('div', { class: 'exam-card-main' },
+          h('div', { class: 'row' }, chip(r.reasonLabel, r.reason === 'respuesta-incorrecta' ? 'bad' : 'warn'),
+            r.sameKey > 1 ? chip(`${r.sameKey} reportes de esta pregunta`, 'bad') : null,
+            h('span', { class: 'muted small' }, `${r.source} · ${fmtDate(r.createdAt)} · ${r.user.name}`)),
+          h('blockquote', { class: 'quote-q' }, r.text),
+          r.comment ? h('p', null, r.comment) : null),
+        h('div', { class: 'exam-card-side' },
+          chip(r.status === 'abierto' ? 'Abierto' : 'Resuelto', r.status === 'abierto' ? 'warn' : 'ok'),
+          btn(r.status === 'abierto' ? 'Marcar resuelto' : 'Reabrir', { small: true, onclick: async () => {
+            try {
+              await API.put(`/api/reports/${r.id}`, { status: r.status === 'abierto' ? 'resuelto' : 'abierto' });
+              load();
+            } catch (e) { QA.toast(e.message); }
+          } }))))));
+    }
+    function load() {
+      API.get('/api/reports').then(d => { list = d.reports; render(); window.dispatchEvent(new CustomEvent('qa:counts')); })
+        .catch(e => box.replaceChildren(h('p', null, e.message)));
+    }
+    load();
+  }
+
+  return { exams, editor, results, students, studentDetail, reports };
 })();

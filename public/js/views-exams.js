@@ -107,6 +107,11 @@ const ExamViews = (() => {
         try {
           const { result } = await API.post(`/api/attempts/${attempt.id}/submit`, { answers });
           dropAnswers(attempt.id);
+          if (result.review) {
+            const wrong = result.review.filter(q => q.chosen !== q.answer);
+            wrong.forEach(q => QA.addMistake({ q: q.q, options: q.options, answer: q.options[q.answer], explain: q.explain }, '', 'examen'));
+            if (wrong.length) { QA.save(); QA.toast(`${wrong.length} ${wrong.length === 1 ? 'pregunta pasó' : 'preguntas pasaron'} a tu repaso.`); }
+          }
           if (auto) QA.toast('Se terminó el tiempo: tu examen se entregó automáticamente.');
           showResult(app, result);
         } catch (err) {

@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { seedDocs, seedExam } = require('./seed');
 
-const EMPTY = () => ({ users: [], sessions: {}, progress: {}, exams: [], attempts: [], docs: [] });
+const EMPTY = () => ({ users: [], sessions: {}, progress: {}, exams: [], attempts: [], docs: [], reports: [] });
 
 function createStore(file) {
   let data;

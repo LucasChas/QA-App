@@ -83,5 +83,30 @@ const UI = (() => {
     return h('div', { class: `meter ${tone || ''}` }, h('span', { style: `width:${Math.max(0, Math.min(100, pct))}%` }));
   }
 
-  return { pageHead, btn, chip, modal, confirm, field, errorBox, empty, loading, fmtDate, fmtDay, meter, icon };
+  /** Permite a cualquier usuario reportar una pregunta con errores; el profesor la revisa. */
+  function reportQuestion({ source, key, text }) {
+    const err = errorBox();
+    const reason = h('select', { id: 'rep-reason', class: 'input' },
+      h('option', { value: 'respuesta-incorrecta' }, 'La respuesta marcada como correcta es incorrecta'),
+      h('option', { value: 'explicacion' }, 'La explicación es confusa o falta'),
+      h('option', { value: 'redaccion' }, 'El enunciado es ambiguo o tiene errores'),
+      h('option', { value: 'desactualizada' }, 'No coincide con el temario v4.0'),
+      h('option', { value: 'otro' }, 'Otro problema'));
+    const comment = h('textarea', { id: 'rep-comment', class: 'input', rows: '3', maxlength: '1000', placeholder: 'Opcional: qué está mal y, si sabes, cuál sería lo correcto.' });
+    modal('Reportar pregunta', h('div', { class: 'form' }, err.el,
+      h('blockquote', { class: 'quote-q' }, text.length > 300 ? text.slice(0, 300) + '…' : text),
+      field('Motivo', reason), field('Comentario', comment)), [
+      { label: 'Cancelar', onclick: c => c() },
+      { label: 'Enviar reporte', variant: 'primary', onclick: async c => {
+        err.clear();
+        try {
+          await API.post('/api/reports', { source, key, text, reason: reason.value, comment: comment.value });
+          c();
+          QA.toast('Gracias. Tu profesor revisará la pregunta.');
+        } catch (e) { err.show(e.message); }
+      } },
+    ]);
+  }
+
+  return { pageHead, btn, chip, modal, confirm, field, errorBox, empty, loading, fmtDate, fmtDay, meter, icon, reportQuestion };
 })();

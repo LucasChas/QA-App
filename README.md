@@ -31,13 +31,23 @@ Para publicarla en internet sirve cualquier servicio que ejecute Node (Render, R
 - **Filminas** de los 6 capítulos, con modo pantalla completa, navegación con teclado, notas para presentar e impresión a PDF (una filmina por página).
 - **Biblioteca** con enlaces a documentación real: temario oficial en español (HASTQB/SSTQB), exámenes de ejemplo, glosario ISTQB, normas ISO, artículos de referencia (pirámide de pruebas, cuadrantes, SBTM) y documentación de herramientas.
 - **Mis exámenes**: rendir con temporizador, entrega automática al vencer el tiempo y revisión de respuestas si el profesor la habilita.
+- **Simulacro oficial**: 40 preguntas, 60 minutos (75 si rindes en otro idioma), aprueba con 26, misma cantidad de preguntas por capítulo que el examen real, marcar para revisar y resultado por capítulo.
+- **Repaso espaciado** (sistema Leitner de 5 cajas): las preguntas que fallas vuelven en 1, 2, 4, 8 y 16 días. Incluye meta diaria y racha.
+- **Preparación**: aciertos por cada tema del temario, estimación del puntaje sobre 40, práctica de temas débiles e informe imprimible.
+- **Bug Hunt con informes**: para confirmar un bug hay que redactar el informe de defecto, que se califica con una rúbrica.
+- **Reportar preguntas** con errores desde cualquier juego o simulacro.
 - Progreso, XP, niveles e insignias guardados en la cuenta.
 
 **Para profesores**
 - Crear, editar, duplicar, publicar y eliminar exámenes. Preguntas propias o importadas del banco ISTQB, tiempo límite, porcentaje de aprobación, intentos, fecha límite y asignación a todos o a alumnos concretos.
 - Resultados por examen: notas, pendientes, aciertos por pregunta y exportación a CSV.
 - Alumnos: avance en los juegos, exámenes rendidos, cambio de rol y restablecimiento de contraseña.
+- Generar un examen de 40 preguntas con la distribución oficial por capítulo con un clic.
+- Ver los temas que más le cuestan al curso, el último simulacro de cada alumno y sus aciertos por tema.
+- Revisar la cola de preguntas reportadas.
 - Agregar o quitar documentos de la biblioteca.
+
+El análisis de la competencia que motivó estas funciones está en [`docs/benchmark.md`](docs/benchmark.md).
 
 ## Seguridad
 
@@ -52,7 +62,8 @@ server/          API REST (Node, sin dependencias) y almacenamiento en JSON
 public/          aplicación web
   js/core.js     estado, XP, insignias y motores de juego
   js/games/      un archivo por capítulo + bug hunt + simulacro
-  js/bank.js     banco de preguntas tipo examen
+  js/bank.js     banco de 66 preguntas v4.0 (sección, nivel K, explicación)
+  js/views-study.js  repaso, simulacro oficial y preparación
   js/slides-data.js  contenido de las filminas
   js/views-*.js  pantallas (aprendizaje, exámenes, profesor)
 test/            pruebas de la API (node:test)

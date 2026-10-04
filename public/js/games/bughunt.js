@@ -23,6 +23,27 @@
 
   const money = n => `$${n.toFixed(2)}`;
 
+  /* Severidad esperada de cada bug real (0 baja, 1 media, 2 alta, 3 crítica). Se acepta ±1. */
+  const SEVERITY = ['Baja', 'Media', 'Alta', 'Crítica'];
+  const EXPECTED_SEV = { cantidad: 2, 'cupon-doble': 2, 'envio-50': 1, 'edad-18': 2, email: 1, 'descuento-envio': 1 };
+  const VAGUE = /^(no (anda|funciona|va)|error|bug|falla|anda mal|no sirve)\.?$/i;
+
+  /** Rúbrica automática del informe de defecto: 4 criterios, 1 punto cada uno. */
+  function gradeReport(rep, bugId) {
+    const steps = rep.steps.split(/\n+/).map(x => x.trim()).filter(Boolean);
+    const checks = [
+      { label: 'Título claro y específico', ok: rep.title.trim().length >= 15 && rep.title.trim().split(/\s+/).length >= 3 && !VAGUE.test(rep.title.trim()),
+        tip: 'Resume qué falla y dónde, por ejemplo: "Checkout rechaza a clientes de exactamente 18 años".' },
+      { label: 'Pasos para reproducir', ok: steps.length >= 2,
+        tip: 'Escribe al menos dos pasos, uno por línea, con los datos usados.' },
+      { label: 'Resultado esperado frente a real', ok: rep.expected.trim().length >= 5 && rep.actual.trim().length >= 5 && rep.expected.trim().toLowerCase() !== rep.actual.trim().toLowerCase(),
+        tip: 'Indica qué dice la especificación que debería pasar y qué pasó en realidad.' },
+      { label: 'Severidad adecuada', ok: Math.abs(Number(rep.severity) - EXPECTED_SEV[bugId]) <= 1,
+        tip: `Para este defecto la severidad esperable es ${SEVERITY[EXPECTED_SEV[bugId]]} (se acepta un nivel de diferencia).` },
+    ];
+    return { checks, points: checks.filter(c => c.ok).length };
+  }
+
   QA.registerGame({
     id: 'bug-hunt',
     chapter: 6,
@@ -36,6 +57,7 @@
         <li>Usa <b>valores límite</b> y <b>particiones</b> (¿qué pasa con 0, -1, 10, 11? ¿y con exactamente $50?).</li>
         <li>Usa <b>predicción de errores</b>: repetir acciones, campos con formatos inválidos…</li>
         <li>Solo puedes reportar un bug si lo <b>reprodujiste</b> en esta sesión. Reportar algo que cumple la especificación es un <b>falso positivo</b> y resta puntos.</li>
+        <li>Cada bug confirmado suma 2 puntos y la <b>calidad de tu informe</b> hasta 4 más: título específico, pasos reproducibles, resultado esperado frente a real y severidad adecuada.</li>
       </ul>`,
     play(root, done) {
       const qty = { taza: 0, remera: 0, libro: 0 };
@@ -44,6 +66,8 @@
       const found = new Set();
       const rejected = new Set();
       let falsePositives = 0;
+      let qualityPoints = 0;
+      const graded = {};
       const logLines = [];
 
       const logBox = h('div', { class: 'log' });
@@ -166,25 +190,66 @@
             h('button', {
               class: 'btn small',
               disabled: isFound || isRejected,
-              onclick: () => {
-                if (!r.real) {
-                  falsePositives++;
-                  rejected.add(r.id);
-                  QA.toast('Rechazado: ese comportamiento cumple la especificación (falso positivo).');
-                  log(`Reporte rechazado (falso positivo): ${r.text}`);
-                } else if (!triggered.has(r.id)) {
-                  QA.toast('Aún no lo reprodujiste en esta sesión. ¡Provócalo primero!');
-                } else {
-                  found.add(r.id);
-                  QA.toast('¡Bug confirmado por el equipo de desarrollo!');
-                  log(`Bug reportado y confirmado: ${r.text}`);
-                }
-                renderBugs();
-              },
+              onclick: () => openReport(r),
             }, isFound ? 'Confirmado' : isRejected ? 'Rechazado' : 'Reportar'),
             h('span', null, r.text)
           );
         }));
+      }
+
+      /* Formulario de informe de defecto: se valida contra lo reproducido y se califica con la rúbrica. */
+      function openReport(r) {
+        const err = UI.errorBox();
+        const f = {
+          title: h('input', { id: 'bh-title', class: 'input', maxlength: '140', placeholder: 'Qué falla y dónde' }),
+          steps: h('textarea', { id: 'bh-steps', class: 'input', rows: '4', placeholder: '1. Agregar 2 camisetas al carrito\n2. Ver el resumen de totales' }),
+          expected: h('input', { id: 'bh-exp', class: 'input', placeholder: 'Según la especificación…' }),
+          actual: h('input', { id: 'bh-act', class: 'input', placeholder: 'Lo que ocurrió…' }),
+          severity: h('select', { id: 'bh-sev', class: 'input' }, SEVERITY.map((x, i) => h('option', { value: String(i) }, x))),
+        };
+        f.severity.value = '1';
+        UI.modal('Informe de defecto', h('div', { class: 'form' },
+          h('blockquote', { class: 'quote-q' }, r.text),
+          err.el,
+          UI.field('Título', f.title),
+          UI.field('Pasos para reproducir', f.steps, 'Uno por línea.'),
+          UI.field('Resultado esperado', f.expected),
+          UI.field('Resultado real', f.actual),
+          UI.field('Severidad', f.severity),
+          h('p', { class: 'muted small' }, 'Entorno: Tienda QA v1.0 en este navegador (se adjunta automáticamente).')), [
+          { label: 'Cancelar', onclick: c => c() },
+          { label: 'Enviar informe', variant: 'primary', onclick: c => {
+            err.clear();
+            if (!r.real) {
+              c();
+              falsePositives++;
+              rejected.add(r.id);
+              QA.toast('Rechazado: ese comportamiento cumple la especificación (falso positivo).');
+              log(`Informe rechazado (falso positivo): ${r.text}`);
+              renderBugs();
+              return;
+            }
+            if (!triggered.has(r.id)) {
+              err.show('El equipo de desarrollo no puede reproducirlo: primero provócalo en la tienda durante esta sesión.');
+              return;
+            }
+            const rep = { title: f.title.value, steps: f.steps.value, expected: f.expected.value, actual: f.actual.value, severity: f.severity.value };
+            const g = gradeReport(rep, r.id);
+            graded[r.id] = g;
+            qualityPoints += g.points;
+            found.add(r.id);
+            log(`Bug confirmado (calidad del informe ${g.points}/4): ${rep.title || r.text}`);
+            c();
+            renderBugs();
+            UI.modal('Informe recibido', h('div', { class: 'form' },
+              h('p', null, `Bug confirmado. Calidad del informe: ${g.points} de 4.`),
+              h('ul', { class: 'rubric' }, g.checks.map(ch => h('li', { class: ch.ok ? 'ok' : 'bad' },
+                h('strong', null, `${ch.ok ? 'Cumple' : 'Mejorable'}: ${ch.label}`),
+                ch.ok ? null : h('span', { class: 'muted small' }, ch.tip))))), [
+              { label: 'Seguir explorando', variant: 'primary', onclick: cc => cc() },
+            ]);
+          } },
+        ]);
       }
 
       const side = h('div', { style: 'display:grid; gap:16px; align-content:start' },
@@ -200,7 +265,7 @@
         ),
         h('div', { class: 'card' },
           h('h3', { style: 'margin-top:0' }, 'Reportes candidatos'),
-          h('p', { class: 'muted', style: 'margin-top:0' }, 'Reporta solo lo que reprodujiste y que contradice la especificación.'),
+          h('p', { class: 'muted', style: 'margin-top:0' }, 'Reporta solo lo que reprodujiste y que contradice la especificación. Cada informe se evalúa: título, pasos, esperado frente a real y severidad.'),
           status,
           bugList,
           h('div', { class: 'actions' },
@@ -208,10 +273,13 @@
               class: 'btn primary',
               onclick: () => {
                 const realTotal = REPORTS.filter(r => r.real).length;
-                const score = Math.max(0, found.size * 2 - falsePositives);
-                done(score, realTotal * 2, {
+                // 2 puntos por bug encontrado + hasta 4 por la calidad del informe; cada falso positivo resta 2.
+                const score = Math.max(0, found.size * 2 + qualityPoints - falsePositives * 2);
+                const missed = REPORTS.filter(r => r.real && !found.has(r.id));
+                done(score, realTotal * 6, {
                   allBugs: found.size === realTotal && falsePositives === 0,
-                  note: `Bugs encontrados: ${found.size}/${realTotal} · Falsos positivos: ${falsePositives}`,
+                  note: `Bugs encontrados: ${found.size}/${realTotal} · Calidad de informes: ${qualityPoints}/${found.size * 4 || 0} · Falsos positivos: ${falsePositives}` +
+                    (missed.length ? ` · Sin encontrar: ${missed.map(m => m.text).join(' / ')}` : ''),
                 });
               },
             }, 'Finalizar sesión')

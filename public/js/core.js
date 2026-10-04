@@ -30,20 +30,42 @@ const QA = (() => {
     { id: 'explorador', icon: 'grid', name: 'Explorador', desc: 'Juega todos los juegos al menos una vez.' },
     { id: 'certificado', icon: 'graduation', name: 'Listo para certificar', desc: 'Aprueba el simulacro de examen (≥ 65%).' },
     { id: 'leyenda', icon: 'layers', name: 'Leyenda', desc: '3 estrellas en todos los juegos.' },
+    { id: 'oficial', icon: 'clipboard', name: 'Examen superado', desc: 'Aprueba un simulacro oficial de 40 preguntas.' },
+    { id: 'constancia', icon: 'calendar', name: 'Constancia', desc: 'Cumple la meta diaria 7 días seguidos.' },
+    { id: 'memoria', icon: 'cycle', name: 'Memoria de tester', desc: 'Domina 10 preguntas en el repaso espaciado.' },
   ];
+
+  /* Sección principal del temario que trabaja cada juego (para las estadísticas por tema). */
+  const GAME_SEC = {
+    'error-defecto-fallo': '1.2', 'siete-principios': '1.3', 'proceso-pruebas': '1.4', 'por-que-probar': '1.1',
+    'niveles-prueba': '2.2', 'tipos-prueba': '2.2', 'sdlc-shift-left': '2.1',
+    'revision-requisitos': '3.1', 'tipos-revision': '3.2',
+    'particiones-limites': '4.2', 'tabla-decision': '4.2', 'transicion-estados': '4.2', 'elige-tecnica': '4.3',
+    'reporte-defectos': '5.5', 'riesgos': '5.2', 'gestion-pruebas': '5.1', 'bug-hunt': '4.4',
+  };
 
   const games = [];
 
   /* ---------------- Estado ----------------
      El progreso vive en el servidor (cuenta del usuario). Aquí se mantiene una copia
      en memoria y cada cambio se envía con un pequeño retardo. */
-  const defaultState = () => ({ xp: 0, results: {}, badges: [] });
+  const defaultState = () => ({
+    xp: 0, results: {}, badges: [],
+    topics: {},                       // { '4.2': { seen, correct } }
+    review: [],                       // cola de repaso espaciado (Leitner)
+    mastered: 0,
+    daily: { date: '', count: 0 },
+    streak: { count: 0, last: '' },
+    mocks: [],                        // historial de simulacros oficiales
+  });
 
   let state = defaultState();
   let syncTimer = null;
 
   function loadState(progress) {
-    state = Object.assign(defaultState(), progress ? { xp: progress.xp, results: progress.results, badges: progress.badges } : {});
+    const base = defaultState();
+    if (progress) for (const k of Object.keys(base)) if (progress[k] !== undefined) base[k] = progress[k];
+    state = base;
     renderPlayer();
   }
 
@@ -75,6 +97,84 @@ const QA = (() => {
     if (pct >= 50) return 1;
     return 0;
   }
+
+  /* ---------------- Aprendizaje: temas, repaso espaciado y racha ---------------- */
+  const LEITNER_DAYS = [0, 1, 2, 4, 8, 16]; // días hasta el próximo repaso según la caja (1 a 5)
+  const DAILY_GOAL = 10;                    // preguntas respondidas por día
+  const MAX_REVIEW = 250;
+  const DAY = 864e5;
+  let context = null;                       // { gameId, sec } del juego en curso
+
+  const pad = n => String(n).padStart(2, '0');
+  const dayStr = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const startOfDay = t => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const stripHtml = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent.trim(); };
+
+  function keyOf(it) {
+    const s = `${it.q}|${it.answer}`;
+    let hsh = 5381;
+    for (let i = 0; i < s.length; i++) hsh = ((hsh << 5) + hsh + s.charCodeAt(i)) | 0;
+    return 'q' + (hsh >>> 0).toString(36);
+  }
+
+  function setContext(c) { context = c; }
+
+  function trackTopic(sec, ok) {
+    if (!sec) return;
+    const t = state.topics[sec] || (state.topics[sec] = { seen: 0, correct: 0 });
+    t.seen++;
+    if (ok) t.correct++;
+  }
+
+  function trackDaily() {
+    const d = dayStr(Date.now());
+    if (state.daily.date !== d) state.daily = { date: d, count: 0 };
+    state.daily.count++;
+    if (state.daily.count === DAILY_GOAL && state.streak.last !== d) {
+      const yesterday = dayStr(Date.now() - DAY);
+      state.streak = { count: state.streak.last === yesterday ? state.streak.count + 1 : 1, last: d };
+      toast(`Meta diaria cumplida. Racha: ${state.streak.count} ${state.streak.count === 1 ? 'día' : 'días'}.`);
+      if (state.streak.count >= 7) unlock('constancia');
+    }
+  }
+
+  function addMistake(it, sec, src) {
+    if (it.context && typeof it.context !== 'string') return; // depende de un diagrama: no se repasa fuera del juego
+    const key = it.key || keyOf(it);
+    const existing = state.review.find(r => r.key === key);
+    if (existing) { existing.box = 1; existing.due = Date.now(); return; }
+    state.review.push({
+      key, q: it.q, context: it.context || '', options: it.options.slice(), answer: it.answer,
+      explain: it.explain || '', sec: sec || '', src: src || '', box: 1, due: Date.now(),
+    });
+    if (state.review.length > MAX_REVIEW) state.review.splice(0, state.review.length - MAX_REVIEW);
+  }
+
+  function reviewMove(key, ok) {
+    const r = state.review.find(x => x.key === key);
+    if (!r) return;
+    if (!ok) { r.box = 1; r.due = startOfDay(Date.now()) + DAY; return; }
+    if (r.box >= 5) {
+      state.review = state.review.filter(x => x !== r);
+      state.mastered++;
+      if (state.mastered >= 10) unlock('memoria');
+      return;
+    }
+    r.box++;
+    r.due = startOfDay(Date.now()) + LEITNER_DAYS[r.box] * DAY;
+  }
+
+  /** Registra cualquier respuesta: estadística por tema, meta diaria y cola de repaso. */
+  function recordAnswer(it, ok, opts = {}) {
+    const sec = it.sec || (context && context.sec) || null;
+    trackTopic(sec, ok);
+    trackDaily();
+    if (opts.review) reviewMove(it.key, ok);
+    else if (!ok) addMistake(it, sec, opts.src || (context && context.gameId) || '');
+    save();
+  }
+
+  const reviewDue = () => state.review.filter(r => r.due <= Date.now()).sort((a, b) => a.box - b.box || a.due - b.due);
 
   /* ---------------- Utilidades DOM ---------------- */
   function h(tag, props, ...children) {
@@ -274,12 +374,19 @@ const QA = (() => {
           onclick: () => {
             const ok = o === it.answer;
             if (ok) score++;
+            if (opts.track !== false) recordAnswer(it, ok, { review: opts.review, src: opts.src });
             optBox.querySelectorAll('.option').forEach(x => {
               x.disabled = true;
               if (x.dataset.val === it.answer) x.classList.add('correct');
             });
             if (!ok) b.classList.add('wrong');
             fbBox.append(feedback(ok, ok ? 'Correcto' : `Incorrecto. La respuesta es: ${it.answer}`, it.explain));
+            if (!ok && opts.track !== false && !opts.review && !(it.context && typeof it.context !== 'string')) {
+              fbBox.append(h('p', { class: 'muted small' }, 'Agregada a tu repaso espaciado.'));
+            }
+            fbBox.append(h('button', { class: 'link-btn small', onclick: () => typeof UI !== 'undefined' && UI.reportQuestion({
+              source: opts.src || (context && context.gameId) || 'quiz', key: it.key || keyOf(it), text: stripHtml(it.q),
+            }) }, 'Reportar un problema con esta pregunta'));
             const last = i === items.length - 1;
             actions.append(h('button', {
               class: 'btn primary',
@@ -454,7 +561,8 @@ const QA = (() => {
   return {
     CHAPTERS, LEVELS, BADGES, games,
     get state() { return state; },
-    h, shuffle, starsHtml, toast, renderPlayer, levelFor, resetProgress, loadState,
+    h, shuffle, starsHtml, toast, renderPlayer, levelFor, resetProgress, loadState, save, unlock,
+    setContext, recordAnswer, addMistake, reviewDue, keyOf, stripHtml, dayStr, GAME_SEC, LEITNER_DAYS, DAILY_GOAL,
     registerGame, getResult, showResult,
     quiz, order, multiSelect, phases, feedback,
   };
